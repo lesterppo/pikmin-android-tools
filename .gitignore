@@ -1,9 +1,12 @@
-# Build artifacts (regenerated locally)
+# Build artifacts (regenerated locally) — but KEEP published release APKs
 build/
 .gradle/
 .kotlin/
 local.properties
-*.apk
 *.jks
 *.keystore
 *.idsig
+# ignore apks everywhere EXCEPT the published releases/ folder
+*.apk
+!releases/
+!releases/*.apk
