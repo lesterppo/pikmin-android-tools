@@ -1,0 +1,9 @@
+# Build artifacts (regenerated locally)
+build/
+.gradle/
+.kotlin/
+local.properties
+*.apk
+*.jks
+*.keystore
+*.idsig

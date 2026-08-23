@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="8dp">
+        <EditText android:id="@+id/lat"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:hint="Latitude (e.g. 22.3193)"
+            android:inputType="numberDecimal|numberSigned" />
+        <EditText android:id="@+id/lon"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:hint="Longitude (e.g. 114.1694)"
+            android:inputType="numberDecimal|numberSigned" />
+        <Button android:id="@+id/go"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Go" />
+    </LinearLayout>
+
+    <LinearLayout android:orientation="horizontal"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="8dp">
+        <TextView android:id="@+id/status"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="Idle — not injecting."
+            android:textSize="13sp" />
+        <Switch android:id="@+id/toggle"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Inject" />
+    </LinearLayout>
+
+    <WebView android:id="@+id/map"
+        android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>

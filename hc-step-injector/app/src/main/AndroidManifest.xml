@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <package android:name="com.google.android.healthconnect.controller" />
+    </queries>
+
+    <application
+        android:label="HC Step Injector"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".StepInjectReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.pikminbot.INJECT_STEPS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Required by Health Connect to READ records (VIEW_PERMISSION_USAGE) -->
+        <activity
+            android:name=".PermissionUsageActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.Dialog">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
