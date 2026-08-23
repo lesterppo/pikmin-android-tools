@@ -5,7 +5,7 @@ open-source and ship pre-built, signed APKs under [`releases/`](releases/).
 
 | Tool | Package | APK | What it does |
 |------|---------|-----|--------------|
-| **MockLoc** | `com.pikminbot.mockloc` | `releases/mockloc-v1.4.1.apk` | On-device GPS mock with an embedded map — tap to pick a spot, toggle injection on/off. No computer needed. |
+| **MockLoc** | `com.pikminbot.mockloc` | `releases/mockloc-v1.7.apk` | On-device GPS mock with an embedded map — tap to pick a spot, natural 90 s injection window (the mushroom-friendly behaviour), persistent mode opt-in. No computer needed. |
 | **HC Step Injector** | `com.pikminbot.hcsteps` | `releases/hc-step-injector-v2.1.apk` | Writes step counts into **Health Connect** (and optionally Google Fit cloud) so Pikmin Bloom reads them. |
 
 > **Privacy & safety notice**
@@ -24,7 +24,7 @@ open-source and ship pre-built, signed APKs under [`releases/`](releases/).
 
 ### Install
 ```bash
-adb install -r releases/mockloc-v1.4.1.apk
+adb install -r releases/mockloc-v1.7.apk
 ```
 
 ### One-time phone setup (Developer Options)
@@ -40,16 +40,31 @@ adb install -r releases/mockloc-v1.4.1.apk
 - Open **PikminBot MockLoc**.
 - Pan/zoom the map (Esri World Street Map tiles — no API key needed).
 - **Tap** anywhere to drop a marker → coordinates fill in.
-- Flip the **Inject** switch **ON**. The app pins that GPS fix from inside the
-  phone (a foreground service refreshes it ~every second, so it survives on
-  Android 12+).
+- Tap **Set point** (or flip the **Inject** switch ON). A foreground service
+  refreshes the fix every ~0.9 s so it survives on Android 12+.
 - Open Pikmin Bloom — it now reads the pinned location.
-- Flip **Inject OFF** to release the mock and return to real GPS.
 
-> After stopping, the `gps` provider is cleared immediately. The system's
-> *fused* location may briefly show the last value until a fresh real fix
-> arrives (outdoors / via WiFi). On Android 14+, the app holds the mock
-> indefinitely while the toggle is on — there is **no auto-timeout**.
+### The mushroom fix (v1.7)
+Pikmin Bloom (Niantic) **rejects gameplay actions when the GPS fix is
+continuously mock-flagged forever** — destroying a mushroom with a
+persistent, never-ending mock showed a generic 錯誤/Error. v1.7 restores the
+behaviour that works:
+
+- **Natural 90-second lifetime** — the mock is kept fresh for 90 s, then the
+  service releases it and the device reverts to real GPS on its own.
+- **No forced persistent mock** — each location pick gets its own fresh 90 s
+  window, so the game sees a natural, short-lived fix instead of an endless
+  mock-flagged one.
+- Picking a new position restarts a fresh 90 s window.
+- Persistent map-coverage mode (`persistent=true` intent extra) remains
+  available for scripts that want continuous re-pinning.
+
+Verified: with v1.7, moving to a mushroom and destroying it works.
+
+> After the 90 s window ends, the `gps` provider is cleared and the system's
+> *fused* location falls back to real GPS (outdoors / via WiFi). On Android
+> 14+, the app releases the mock automatically — there is no need to toggle
+> it off manually.
 
 ### Build from source
 ```bash
@@ -115,7 +130,8 @@ mockloc/                      # MockLoc source (Java, aapt2/d8 build)
 hc-step-injector/             # HC Step Injector source (Kotlin/Gradle)
   app/...
 releases/                     # pre-built, signed APKs (downloadable)
-  mockloc-v1.4.1.apk
+  mockloc-v1.7.apk
+  mockloc-v1.4.1.apk          # previous stable (kept for reference)
   hc-step-injector-v2.1.apk
 privacy_sweep.py              # CI/local check: fails if any secret/PII is committed
 ```

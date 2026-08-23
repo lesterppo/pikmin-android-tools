@@ -30,6 +30,10 @@ public class MockService extends Service {
     private static final String TAG = "PikminMockLoc";
     private static final int NOTIF_ID = 1;
     private static final long INTERVAL_MS = 900;
+    // Natural lifetime: keep the mock fresh for this long (re-pinning so it
+    // stays visible to apps), then release so the device reverts to real GPS.
+    // This is the behaviour that historically let Pikmin Bloom accept actions.
+    private static final long DEFAULT_LIFETIME_MS = 90_000L;
 
     // Live status surfaced to MainActivity polling.
     public static boolean running = false;
@@ -41,6 +45,14 @@ public class MockService extends Service {
     private LocationManager lm;
     private PowerManager.WakeLock wl;
     private Handler loop;
+    private long lifetimeMs = DEFAULT_LIFETIME_MS;
+    private final Runnable expiryTask = new Runnable() {
+        @Override
+        public void run() {
+            Log.i(TAG, "natural lifetime reached (" + lifetimeMs + "ms), releasing mock");
+            stopSelf();
+        }
+    };
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -65,6 +77,15 @@ public class MockService extends Service {
             return START_NOT_STICKY;
         }
 
+        // Default: re-pin every ~1s so the mock stays VISIBLE to apps (a single
+        // fix goes stale in ~10-20s on Android 12+), then release after the
+        // natural lifetime so the device reverts to real GPS.
+        // persistent=true keeps the mock forever (map-coverage mode).
+        boolean persistent = intent != null && intent.getBooleanExtra("persistent", false);
+        if (intent != null && intent.hasExtra("timeout")) {
+            lifetimeMs = intent.getLongExtra("timeout", DEFAULT_LIFETIME_MS);
+        }
+
         double lat = intent != null ? intent.getDoubleExtra("lat", Double.NaN) : Double.NaN;
         double lon = intent != null ? intent.getDoubleExtra("lon", Double.NaN) : Double.NaN;
         if (intent != null && intent.hasExtra("latitude") && Double.isNaN(lat)) {
@@ -75,9 +96,11 @@ public class MockService extends Service {
         }
 
         if (running) {
-            // Already alive: just update the target coordinates.
+            // Already alive: update the target; the active loop picks it up.
             if (!Double.isNaN(lat)) curLat = lat;
             if (!Double.isNaN(lon)) curLon = lon;
+            if (loop == null) { startLoop(); }
+            if (!persistent && loop != null) { loop.removeCallbacks(expiryTask); loop.postDelayed(expiryTask, lifetimeMs); }
             Log.i(TAG, String.format("target updated %.6f, %.6f", curLat, curLon));
             return START_STICKY;
         }
@@ -93,11 +116,16 @@ public class MockService extends Service {
         startForeground(NOTIF_ID, buildNotification());
         acquireWakeLock();
         inject(); // immediate first shot
+        startLoop();
+        if (!persistent) loop.postDelayed(expiryTask, lifetimeMs);
+        running = true;
+        Log.i(TAG, String.format("service started, pinning %.6f, %.6f (lifetime %dms%s)", curLat, curLon, persistent ? -1 : lifetimeMs, persistent ? ", persistent" : ""));
+        return START_STICKY;
+    }
+
+    private void startLoop() {
         loop = new Handler(Looper.getMainLooper());
         loop.postDelayed(tick, INTERVAL_MS);
-        running = true;
-        Log.i(TAG, String.format("service started, pinning %.6f, %.6f", curLat, curLon));
-        return START_STICKY;
     }
 
     private void inject() {
@@ -171,7 +199,7 @@ public class MockService extends Service {
     @Override
     public void onDestroy() {
         running = false;
-        if (loop != null) loop.removeCallbacks(tick);
+        if (loop != null) { loop.removeCallbacks(tick); loop.removeCallbacks(expiryTask); loop = null; }
         if (wl != null && wl.isHeld()) {
             try { wl.release(); } catch (Throwable ignored) {}
         }
@@ -189,11 +217,22 @@ public class MockService extends Service {
         return null;
     }
 
-    /** Convenience for external starters (adb broadcast receiver). */
+    /** Convenience for external starters (adb broadcast receiver / UI):
+     *  keep the mock fresh for the natural lifetime (default 90s), then release
+     *  so the device reverts to real GPS. */
     public static void start(Context ctx, double lat, double lon) {
         Intent i = new Intent(ctx, MockService.class);
         i.putExtra("lat", lat);
         i.putExtra("lon", lon);
+        ctx.startForegroundService(i);
+    }
+
+    /** Persistent map-coverage mode: keep re-pinning every ~1s forever. */
+    public static void startPersistent(Context ctx, double lat, double lon) {
+        Intent i = new Intent(ctx, MockService.class);
+        i.putExtra("lat", lat);
+        i.putExtra("lon", lon);
+        i.putExtra("persistent", true);
         ctx.startForegroundService(i);
     }
 
