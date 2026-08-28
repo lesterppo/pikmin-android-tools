@@ -15,6 +15,7 @@ Run: python3 privacy_sweep.py   (from repo root, or anywhere inside it)
 """
 import os
 import re
+import subprocess
 import sys
 
 # Files / dirs that are allowed to mention client ids (none here — strict).
@@ -56,6 +57,19 @@ def main():
     for dirpath, dirnames, filenames in os.walk(root):
         # skip git internals
         dirnames[:] = [d for d in dirnames if d != ".git"]
+        # prune gitignored directories (build outputs, caches, keystores)
+        keep = []
+        for d in dirnames:
+            try:
+                if subprocess.run(
+                    ["git", "-C", root, "check-ignore", "-q", os.path.join(dirpath, d)],
+                    capture_output=True,
+                ).returncode == 0:
+                    continue
+            except Exception:
+                pass
+            keep.append(d)
+        dirnames[:] = keep
         for fn in filenames:
             if FORBID_NAMES.search(fn):
                 bad.append((os.path.relpath(os.path.join(dirpath, fn), root),
