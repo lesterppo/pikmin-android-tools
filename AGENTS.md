@@ -1,8 +1,10 @@
 # AGENTS.md — Pikmin Android Tools
 
-Repository for two Android companion tools used with Pikmin Bloom. Public,
-privacy-safe: source code + pre-built signed APKs only. **No secrets, API keys,
-OAuth client secrets, emails, or absolute home paths are ever committed.**
+Repository for three Android companion tools used with Pikmin Bloom: MockLoc
+(GPS mock), HC Step Injector (Health Connect/Google Fit steps) and Jogger
+(jogging simulator). Public, privacy-safe: source code + pre-built signed APKs
+only. **No secrets, API keys, OAuth client secrets, emails, or absolute home
+paths are ever committed.**
 
 ## Hard rules (enforced by privacy_sweep.py)
 - Never commit: `*.jks`, `*.keystore`, `local.properties`, `*.apk` build
