@@ -71,14 +71,22 @@ def main():
             keep.append(d)
         dirnames[:] = keep
         for fn in filenames:
+            p = os.path.join(dirpath, fn)
+            # skip gitignored files (build outputs, keystores, local config)
+            try:
+                if subprocess.run(
+                    ["git", "-C", root, "check-ignore", "-q", p],
+                    capture_output=True,
+                ).returncode == 0:
+                    continue
+            except Exception:
+                pass
             if FORBID_NAMES.search(fn):
-                bad.append((os.path.relpath(os.path.join(dirpath, fn), root),
-                            "forbidden filename"))
+                bad.append((os.path.relpath(p, root), "forbidden filename"))
                 continue
             ext = os.path.splitext(fn)[1].lower()
             if ext not in ALLOWED_EXT:
                 continue
-            p = os.path.join(dirpath, fn)
             try:
                 with open(p, "r", encoding="utf-8", errors="strict") as f:
                     text = f.read()
