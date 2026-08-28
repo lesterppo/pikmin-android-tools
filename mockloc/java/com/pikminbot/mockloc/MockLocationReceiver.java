@@ -54,8 +54,15 @@ public class MockLocationReceiver extends BroadcastReceiver {
     private static double readDouble(Intent i, String... keys) {
         for (String k : keys) {
             if (!i.hasExtra(k)) continue;
-            try { return (double) i.getFloatExtra(k, Float.NaN); } catch (Throwable t) {}
+            // Type-check first: Bundle getters NEVER throw on a wrong type —
+            // they silently return the default (NaN), so a getDouble->getFloat
+            // fallback chain doesn't work. Handle whatever the am tool stored
+            // (--ef Float, --ed Double, --el Long, --ei Int, --es String).
+            Object v = null;
+            try { v = i.getExtras().get(k); } catch (Throwable t) {}
+            if (v instanceof Number) return ((Number) v).doubleValue();
             try { return i.getDoubleExtra(k, Double.NaN); } catch (Throwable t) {}
+            try { return (double) i.getFloatExtra(k, Float.NaN); } catch (Throwable t) {}
         }
         return Double.NaN;
     }

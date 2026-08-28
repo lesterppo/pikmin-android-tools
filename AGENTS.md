@@ -8,8 +8,13 @@ OAuth client secrets, emails, or absolute home paths are ever committed.**
 - Never commit: `*.jks`, `*.keystore`, `local.properties`, `*.apk` build
   outputs, `fit_token.json`, any file containing `client_secret`, a real
   `@gmail.com`, or `/home/<user>` paths.
-- The published APKs under `releases/` are signed with throwaway debug keys.
-  Rebuilders generate their own (see `mockloc/build.sh`).
+- SIGNING KEY: releases are signed with ONE persistent key so `adb install -r`
+  can upgrade in place without "signatures do not match". The key is NOT in
+  this repo (it lives locally, e.g. `~/pikmin-bot/mockloc/keystore.jks`,
+  alias `mockloc`, and is gitignored everywhere). A fresh build with a NEW
+  key will NOT upgrade over an existing install — users must uninstall first.
+  Build with the canonical key:
+  `cd mockloc && ANDROID_SDK=$HOME/android-sdk ANDROID_KEYSTORE=~/pikmin-bot/mockloc/keystore.jks ANDROID_KEYALIAS=mockloc ANDROID_KEYPASS=pikminbot ANDROID_KSPATH=pikminbot bash build.sh`
 - `local.properties` (contains `sdk.dir=...`) is gitignored — do NOT add it.
 
 ## Tools

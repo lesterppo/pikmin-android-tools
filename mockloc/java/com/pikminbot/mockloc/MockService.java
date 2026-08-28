@@ -86,14 +86,8 @@ public class MockService extends Service {
             lifetimeMs = intent.getLongExtra("timeout", DEFAULT_LIFETIME_MS);
         }
 
-        double lat = intent != null ? intent.getDoubleExtra("lat", Double.NaN) : Double.NaN;
-        double lon = intent != null ? intent.getDoubleExtra("lon", Double.NaN) : Double.NaN;
-        if (intent != null && intent.hasExtra("latitude") && Double.isNaN(lat)) {
-            lat = intent.getDoubleExtra("latitude", Double.NaN);
-        }
-        if (intent != null && intent.hasExtra("longitude") && Double.isNaN(lon)) {
-            lon = intent.getDoubleExtra("longitude", Double.NaN);
-        }
+        double lat = readCoord(intent, "lat", "latitude");
+        double lon = readCoord(intent, "lon", "lng", "longitude");
 
         if (running) {
             // Already alive: update the target; the active loop picks it up.
@@ -215,6 +209,22 @@ public class MockService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    /** Type-checked coord reader: Bundle getters silently return the default
+     *  (NaN) for a wrong type instead of throwing, so read the raw value and
+     *  convert. Handles --ef Float, --ed Double, --el Long, --ei Int, --es String. */
+    private static double readCoord(Intent i, String... keys) {
+        if (i == null) return Double.NaN;
+        for (String k : keys) {
+            if (!i.hasExtra(k)) continue;
+            Object v = null;
+            try { v = i.getExtras().get(k); } catch (Throwable t) {}
+            if (v instanceof Number) return ((Number) v).doubleValue();
+            try { return i.getDoubleExtra(k, Double.NaN); } catch (Throwable t) {}
+            try { return (double) i.getFloatExtra(k, Float.NaN); } catch (Throwable t) {}
+        }
+        return Double.NaN;
     }
 
     /** Convenience for external starters (adb broadcast receiver / UI):

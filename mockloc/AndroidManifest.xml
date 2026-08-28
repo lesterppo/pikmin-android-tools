@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.pikminbot.mockloc"
-    android:versionCode="9"
-    android:versionName="1.7">
+    android:versionCode="11"
+    android:versionName="1.9">
 
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
 
@@ -31,10 +31,14 @@
         </activity>
 
         <!-- Foreground service: pins the mock GPS fix with a 1s loop so it
-             never goes stale on Android 12+. Started from MainActivity or
-             from the adb broadcast receiver below. -->
+             never goes stale on Android 12+. Started from MainActivity,
+             the adb broadcast receiver below, or directly via
+             `adb shell am start-foreground-service -n com.pikminbot.mockloc/.MockService -ef lat X -ef lon Y`.
+             exported=true lets the shell start it without launching the UI
+             (safe: inject() still fails unless THIS app holds the
+             MOCK_LOCATION appop, so other packages can't abuse it). -->
         <service android:name=".MockService"
-                 android:exported="false"
+                 android:exported="true"
                  android:foregroundServiceType="location" />
 
         <!-- Adb-driven entry (pbgw bridge). Delegates to MockService. -->
