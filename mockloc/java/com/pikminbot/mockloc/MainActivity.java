@@ -151,6 +151,10 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Enter valid latitude and longitude", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!isValidCoord(lat, lon)) {
+            Toast.makeText(this, "Invalid range: lat -90..90, lon -180..180", Toast.LENGTH_LONG).show();
+            return;
+        }
         moveMapMarker(lat, lon);
         if (toggle.isChecked()) MockService.start(this, lat, lon);
         else refreshStatus();
@@ -164,8 +168,17 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Enter valid coordinates first", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!isValidCoord(lat, lon)) {
+            toggle.setChecked(false);
+            Toast.makeText(this, "Invalid range: lat -90..90, lon -180..180", Toast.LENGTH_LONG).show();
+            return;
+        }
         moveMapMarker(lat, lon);
         MockService.start(this, lat, lon);
+    }
+
+    private static boolean isValidCoord(double lat, double lon) {
+        return lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
     }
 
     private double parse(String s) {
@@ -191,7 +204,8 @@ public class MainActivity extends Activity {
         if (!Double.isNaN(lat)) { latIn.setText(String.format(Locale.US, "%.6f", lat)); moveMapMarker(lat, lon); }
         if (!Double.isNaN(lon)) lonIn.setText(String.format(Locale.US, "%.6f", lon));
         if (intent.getBooleanExtra(EXTRA_AUTOSTART, false)
-                && !Double.isNaN(lat) && !Double.isNaN(lon)) {
+                && !Double.isNaN(lat) && !Double.isNaN(lon)
+                && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0) {
             toggle.setChecked(true);
             MockService.start(this, lat, lon);
         }

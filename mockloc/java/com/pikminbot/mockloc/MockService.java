@@ -89,6 +89,16 @@ public class MockService extends Service {
         double lat = readCoord(intent, "lat", "latitude");
         double lon = readCoord(intent, "lon", "lng", "longitude");
 
+        // Reject out-of-range coords up front: the system throws
+        // BadLocationException on lon < -180 (or > 180), and a far-away
+        // "valid" point is ignored by the game anyway. Never inject garbage.
+        if (!Double.isNaN(lat) && !Double.isNaN(lon)
+                && !(lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0)) {
+            Log.w(TAG, String.format("invalid coords rejected: %.6f, %.6f", lat, lon));
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         if (running) {
             // Already alive: update the target; the active loop picks it up.
             if (!Double.isNaN(lat)) curLat = lat;
