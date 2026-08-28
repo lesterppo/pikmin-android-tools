@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+
+    <queries>
+        <package android:name="com.google.android.healthconnect.controller" />
+    </queries>
+
+    <application
+        android:label="PikminBot Jogger"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Jogging service: moves mock GPS at 10 km/h + writes 2 steps/s to Health Connect.
+             exported=true so adb can drive it directly (see README):
+               am start-foreground-service -n com.pikminbot.jogger/.JogService -es mode loop -ei radius_m 100 -ei duration_min 30 [-ef lat X -ef lon Y]
+               am start-foreground-service -n com.pikminbot.jogger/.JogService -es cmd stop
+             Safe: injection fails unless THIS app holds the MOCK_LOCATION appop. -->
+        <service
+            android:name=".JogService"
+            android:exported="true"
+            android:foregroundServiceType="location" />
+
+        <!-- Required by Health Connect to READ records (VIEW_PERMISSION_USAGE) -->
+        <activity
+            android:name=".PermissionUsageActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.Dialog">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -29,6 +29,14 @@ OAuth client secrets, emails, or absolute home paths are ever committed.**
 - Dual-pathway: writes to Health Connect AND Google Fit cloud in one call.
 - Fit cloud path needs a user-provisioned `fit_token.json` (own OAuth client).
 
+### Jogger (`com.pikminbot.jogger`)
+- Kotlin + Gradle (`pikmin-jogger/`). Simulates a jog: mock GPS moves at
+  10 km/h (loop or straight route) + 2 steps/s streamed to Health Connect.
+- Exported foreground service (`foregroundServiceType="location"`) so adb can
+  drive it with `am start-foreground-service` (screen-off, no UI popup).
+- Only ONE app can be the system mock-location provider at a time —
+  selecting the Jogger disables MockLoc until re-selected.
+
 ## Verification
 Run before committing:
 ```bash
