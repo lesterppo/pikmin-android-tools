@@ -295,7 +295,6 @@ mockloc/                      # MockLoc source (Java, aapt2/d8 build)
 hc-step-injector/             # HC Step Injector source (Kotlin/Gradle)
 pikmin-jogger/                # Jogger source (Kotlin/Gradle, exported FGS)
 releases/                     # pre-built, signed APKs (downloadable)
-privacy_sweep.py              # pre-commit scan run by maintainers
 ```
 
 ## License
