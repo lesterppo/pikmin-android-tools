@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+
+    <queries>
+        <package android:name="com.google.android.healthconnect.controller" />
+    </queries>
+
+    <application
+        android:label="PikminBot Tools"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Mock GPS service: re-pins the fix every ~0.9s so it never goes
+             stale on Android 12+, auto-releases after the natural lifetime
+             unless persistent=true. exported=true so adb can drive it:
+               am start-foreground-service -n com.pikminbot.tools/.MockService -ef lat X -ef lon Y
+               am start-foreground-service -n com.pikminbot.tools/.MockService -es cmd stop
+             Safe: injection fails unless THIS app holds the MOCK_LOCATION appop. -->
+        <service
+            android:name=".MockService"
+            android:exported="true"
+            android:foregroundServiceType="location" />
+
+        <!-- Jogging service: moves mock GPS + writes steps to Health Connect.
+               am start-foreground-service -n com.pikminbot.tools/.JogService -es mode loop -ei radius_m 100 -ei duration_min 30 [-ef lat X -ef lon Y]
+               am start-foreground-service -n com.pikminbot.tools/.JogService -es cmd stop -->
+        <service
+            android:name=".JogService"
+            android:exported="true"
+            android:foregroundServiceType="location" />
+
+        <!-- Adb broadcast entry (pbgw bridge compat): delegates to MockService.
+             Must route through the Activity (foreground-service-from-receiver is
+             denied on Android 14+). -->
+        <receiver
+            android:name=".MockLocationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.pikminbot.mock.SET_LOCATION" />
+                <action android:name="com.pikminbot.mock.CLEAR_LOCATION" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Required by Health Connect to READ records (VIEW_PERMISSION_USAGE) -->
+        <activity
+            android:name=".PermissionUsageActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.Dialog">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
