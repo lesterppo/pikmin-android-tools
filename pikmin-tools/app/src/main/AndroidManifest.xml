@@ -32,26 +32,19 @@
             </intent-filter>
         </activity>
 
-        <!-- Mock GPS service: re-pins the fix every ~0.9s so it never goes
-             stale on Android 12+, auto-releases after the natural lifetime
-             unless persistent=true. exported=true so adb can drive it:
-               am start-foreground-service -n com.pikminbot.tools/.MockService -ef lat X -ef lon Y
-               am start-foreground-service -n com.pikminbot.tools/.MockService -es cmd stop
+        <!-- Unified engine service (v2): ONE service owns the single mock GPS
+             provider, live-switchable between mock-pin and jog modes. This
+             removes the intra-app conflict of the v1 MockService+JogService
+             pair. exported=true so adb can drive it:
+               am start-foreground-service -n com.pikminbot.tools/.EngineService -es mode pin -ef lat X -ef lon Y [-ez persistent true]
+               am start-foreground-service -n com.pikminbot.tools/.EngineService -es mode jog [-es jogmode loop|straight ...] [-es cmd stop]
              Safe: injection fails unless THIS app holds the MOCK_LOCATION appop. -->
         <service
-            android:name=".MockService"
+            android:name=".EngineService"
             android:exported="true"
             android:foregroundServiceType="location" />
 
-        <!-- Jogging service: moves mock GPS + writes steps to Health Connect.
-               am start-foreground-service -n com.pikminbot.tools/.JogService -es mode loop -ei radius_m 100 -ei duration_min 30 [-ef lat X -ef lon Y]
-               am start-foreground-service -n com.pikminbot.tools/.JogService -es cmd stop -->
-        <service
-            android:name=".JogService"
-            android:exported="true"
-            android:foregroundServiceType="location" />
-
-        <!-- Adb broadcast entry (pbgw bridge compat): delegates to MockService.
+        <!-- Adb broadcast entry (pbgw bridge compat): delegates to EngineService (pin).
              Must route through the Activity (foreground-service-from-receiver is
              denied on Android 14+). -->
         <receiver

@@ -13,8 +13,8 @@ import android.util.Log
  * On Android 14+ a BroadcastReceiver is NOT allowed to call
  * startForegroundService (the call is silently DENIED). So instead we launch
  * the app's MainActivity with the coordinates + autostart flag; the Activity
- * (a permitted context) then starts MockService. This keeps injection fully
- * on-device with no computer loop.
+ * (a permitted context) then starts EngineService (pin). This keeps injection
+ * fully on-device with no computer loop.
  */
 class MockLocationReceiver : BroadcastReceiver() {
 
@@ -25,8 +25,8 @@ class MockLocationReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
 
         if (action == ACTION_CLEAR) {
-            context.stopService(Intent(context, MockService::class.java))
-            Log.i(TAG, "cleared mock location (via activity stop)")
+            context.stopService(Intent(context, EngineService::class.java))
+            Log.i(TAG, "cleared mock location (via EngineService stop)")
             return
         }
         if (action != ACTION_SET) return

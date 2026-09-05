@@ -16,16 +16,16 @@ import android.widget.Toast
 import java.util.Locale
 
 /**
- * Minimal control screen: toggle Mock and Jog, see live state from both
- * services (polled from their static state objects), plus the last
- * SecurityException / self-heal note from SelfHeal.
+ * Minimal control screen for the single EngineService.
+ * Toggle Pin and Jog (live-switchable within the one engine service),
+ * show live state from the EngineService statics + last self-heal note.
  *
  * Also the landing target for MockLocationReceiver's autostart path
  * (foreground-service start needs an Activity context on Android 14+).
  */
 class MainActivity : Activity() {
 
-    private lateinit var mockBtn: Button
+    private lateinit var pinBtn: Button
     private lateinit var jogBtn: Button
     private lateinit var status: TextView
     private lateinit var healNote: TextView
@@ -55,9 +55,9 @@ class MainActivity : Activity() {
         }
         root.addView(title)
 
-        mockBtn = Button(this).apply { text = "Mock: ?" }
+        pinBtn = Button(this).apply { text = "Pin: ?" }
         jogBtn = Button(this).apply { text = "Jog: ?" }
-        root.addView(mockBtn)
+        root.addView(pinBtn)
         root.addView(jogBtn)
 
         status = TextView(this).apply { setPadding(0, pad / 2, 0, 0) }
@@ -71,44 +71,29 @@ class MainActivity : Activity() {
 
         setContentView(root)
 
-        mockBtn.setOnClickListener {
-            if (MockService.running) {
-                MockService.stop(this)
-                Toast.makeText(this, "Mock stopped", Toast.LENGTH_SHORT).show()
+        pinBtn.setOnClickListener {
+            if (EngineService.running && EngineService.mode == "pin") {
+                EngineService.stop(this)
+                Toast.makeText(this, "Engine stopped", Toast.LENGTH_SHORT).show()
             } else {
-                val lat = if (MockService.curLat != 0.0) MockService.curLat else 22.3193
-                val lon = if (MockService.curLon != 0.0) MockService.curLon else 114.1694
-                MockService.startPersistent(this, lat, lon)
-                Toast.makeText(this, "Mock started (persistent)", Toast.LENGTH_SHORT).show()
+                val lat = if (EngineService.curLat != 0.0) EngineService.curLat else 22.3193
+                val lon = if (EngineService.curLon != 0.0) EngineService.curLon else 114.1694
+                EngineService.startPin(this, lat, lon, persistent = true)
+                Toast.makeText(this, "Pin started (persistent)", Toast.LENGTH_SHORT).show()
             }
             refreshStatus()
         }
 
         jogBtn.setOnClickListener {
-            if (JogService.running) {
-                val i = Intent(this, JogService::class.java)
-                i.putExtra("cmd", "stop")
-                startService(i)
+            if (EngineService.running && EngineService.mode == "jog") {
+                EngineService.stop(this)
                 Toast.makeText(this, "Jog stopped", Toast.LENGTH_SHORT).show()
             } else {
-                val lat = if (JogService.curLat != 0.0) JogService.curLat
-                          else if (MockService.curLat != 0.0) MockService.curLat else null
-                val lon = if (JogService.curLon != 0.0) JogService.curLon
-                          else if (MockService.curLon != 0.0) MockService.curLon else null
-                if (lat == null || lon == null) {
-                    Toast.makeText(this, "No last location — run Mock first or use adb", Toast.LENGTH_LONG).show()
-                } else {
-                    val i = Intent(this, JogService::class.java)
-                    i.putExtra("mode", "loop")
-                    i.putExtra("speed_kph", 10.0f)
-                    i.putExtra("steps_per_sec", 2.0f)
-                    i.putExtra("radius_m", 100)
-                    i.putExtra("duration_min", 30)
-                    i.putExtra("lat", lat.toFloat())
-                    i.putExtra("lon", lon.toFloat())
-                    startForegroundService(i)
-                    Toast.makeText(this, "Jog started (30min loop)", Toast.LENGTH_SHORT).show()
-                }
+                val lat = if (EngineService.curLat != 0.0) EngineService.curLat else 22.3193
+                val lon = if (EngineService.curLon != 0.0) EngineService.curLon else 114.1694
+                EngineService.startJog(this, lat, lon, "loop",
+                    10.0, 2.0, 100.0, 0.0, 30L)
+                Toast.makeText(this, "Jog started (30min loop)", Toast.LENGTH_SHORT).show()
             }
             refreshStatus()
         }
@@ -131,23 +116,22 @@ class MainActivity : Activity() {
         val lat = readCoord(i, "lat", "latitude")
         val lon = readCoord(i, "lon", "lng", "longitude")
         if (lat.isNaN() || lon.isNaN()) return
-        MockService.start(this, lat, lon)
+        EngineService.startPin(this, lat, lon, persistent = false)
         Toast.makeText(this, String.format(Locale.US, "Pinning %.6f, %.6f", lat, lon), Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshStatus() {
-        mockBtn.text = "Mock: ${if (MockService.running) "ON" else "off"}"
-        jogBtn.text = "Jog: ${if (JogService.running) "ON" else "off"}"
+        pinBtn.text = "Pin: ${if (EngineService.running && EngineService.mode == "pin") "ON" else "off"}"
+        jogBtn.text = "Jog: ${if (EngineService.running && EngineService.mode == "jog") "ON" else "off"}"
 
         status.text = buildString {
-            append("Mock ticks: ${MockService.tickCount}")
-            append("  ·  Jog: ${"%.0f".format(JogService.totalMeters)}m / ${JogService.totalSteps} steps")
-            if (JogService.lastError.isNotBlank()) append("\nJog err: ${JogService.lastError}")
+            append("Mode: ${EngineService.mode} · ticks ${EngineService.tickCount}")
+            append("  ·  ${"%.0f".format(EngineService.totalMeters)}m / ${EngineService.totalSteps} steps")
+            if (EngineService.lastError.isNotBlank()) append("\nEngine err: ${EngineService.lastError}")
         }
 
         coords.text = String.format(Locale.US,
-            "Mock @ %.6f, %.6f\nJog  @ %.6f, %.6f",
-            MockService.curLat, MockService.curLon, JogService.curLat, JogService.curLon)
+            "Loc: %.6f, %.6f", EngineService.curLat, EngineService.curLon)
 
         healNote.text = if (SelfHeal.lastSecurityExceptionMs > 0L) {
             val ago = ((System.currentTimeMillis() - SelfHeal.lastSecurityExceptionMs) / 1000).coerceAtLeast(0)
