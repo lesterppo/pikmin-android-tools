@@ -83,6 +83,9 @@ class EngineService : Service() {
             ctx.startForegroundService(i)
         }
 
+        /** Read-only jog advance speed in m/s, for the UI status line. */
+        @JvmStatic fun jogSpeedMpsView(): Double = jogSpeedKph * 1000.0 / 3600.0
+
         fun startJog(ctx: Context, lat: Double, lon: Double, modeStr: String,
                      kph: Double, sps: Double, radius: Double, heading: Double,
                      durMin: Long) {
