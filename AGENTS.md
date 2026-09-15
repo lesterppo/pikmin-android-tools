@@ -1,8 +1,9 @@
 # AGENTS.md — Pikmin Android Tools
 
-Repository for three Android companion tools used with Pikmin Bloom: MockLoc
-(GPS mock), HC Step Injector (Health Connect/Google Fit steps) and Jogger
-(jogging simulator). Public, privacy-safe: source code + pre-built signed APKs
+Repository for Android companion tools used with Pikmin Bloom: MockLoc
+(GPS mock), HC Step Injector (Health Connect/Google Fit steps), Jogger
+(jogging simulator), PikminBot Tools (MockLoc + Jogger in one app, one engine)
+and Pikmin Clones (multi-account clone tooling + instance picker). Public, privacy-safe: source code + pre-built signed APKs
 only. **No secrets, API keys, OAuth client secrets, emails, or absolute home
 paths are ever committed.**
 
@@ -16,7 +17,7 @@ paths are ever committed.**
   alias `mockloc`, and is gitignored everywhere). A fresh build with a NEW
   key will NOT upgrade over an existing install — users must uninstall first.
   Build with the canonical key:
-  `cd mockloc && ANDROID_SDK=$HOME/android-sdk ANDROID_KEYSTORE=~/pikmin-bot/mockloc/keystore.jks ANDROID_KEYALIAS=mockloc ANDROID_KEYPASS=pikminbot ANDROID_KSPATH=pikminbot bash build.sh`
+  `cd mockloc && ANDROID_SDK=$HOME/android-sdk ANDROID_KEYSTORE=~/pikmin-bot/mockloc/keystore.jks ANDROID_KEYALIAS=mockloc ANDROID_KEYPASS=<your-password> ANDROID_KSPATH=<store-type> bash build.sh`
 - `local.properties` (contains `sdk.dir=...`) is gitignored — do NOT add it.
 
 ## Tools
@@ -30,6 +31,26 @@ paths are ever committed.**
 - Kotlin + Gradle (`hc-step-injector/`). AndroidX Health Connect client.
 - Dual-pathway: writes to Health Connect AND Google Fit cloud in one call.
 - Fit cloud path needs a user-provisioned `fit_token.json` (own OAuth client).
+
+### PikminBot Tools (`com.pikminbot.tools`)
+- Kotlin + Gradle (`pikmin-tools/`). MockLoc + Jogger UIs over ONE
+  `EngineService` (v2.0 merger) so the two never fight over the single
+  mock-location slot. `versionName 2.2`.
+- v2.2: `persistent` is per-request (a sticky `true` used to make every later
+  pin immortal) and `onDestroy` hands a real fix back to the phone.
+
+### Pikmin Clones (`pikmin-clones/`)
+- Multi-account tooling: re-package the app under a new package name so several
+  accounts stay signed in side by side, plus a picker app
+  (`com.peter.pikminclones`) that lists the original, every clone and any
+  profile copy via `LauncherApps` and opens the tapped one.
+- `build_clone.sh` (apktool re-package), `patch_sharedlogin.py` (mandatory
+  crash fix), `clones.sh` (status/launch/grant/reset/pin/steps/run),
+  `verify_gps.sh`, `verify_steps.sh`, `ui.py` (screenshot+OCR driver).
+- Re-signed clones log in with **web-OAuth** providers only (Nintendo Account).
+  Google/Facebook sign-in cannot work on a re-signed APK.
+- Never sed a package rename through binary assets (`global-metadata.dat`,
+  `*.bundle`) — offsets shift and the file corrupts.
 
 ### Jogger (`com.pikminbot.jogger`)
 - Kotlin + Gradle (`pikmin-jogger/`). Simulates a jog: mock GPS moves at
@@ -49,3 +70,7 @@ And for the APK: `apksigner verify releases/<file>.apk`.
 ## Build
 - MockLoc: `cd mockloc && ANDROID_SDK=$HOME/android-sdk bash build.sh`
 - HC: `cd hc-step-injector && ./gradlew assembleRelease`
+- PikminBot Tools: `cd pikmin-tools && ./gradlew assembleRelease`
+- Pikmin Clones picker: `cd pikmin-clones/launcher && bash build_launcher.sh`
+  (needs `ANDROID_KEYSTORE` / `ANDROID_KEYALIAS` / `ANDROID_KEYPASS`)
+- Clone of the game: `cd pikmin-clones && ./build_clone.sh c1`

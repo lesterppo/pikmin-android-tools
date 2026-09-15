@@ -13,7 +13,7 @@ KEYALIAS="${ANDROID_KEYALIAS:-mockloc}"
 KEYPASS="${ANDROID_KEYPASS:-pikminbot}"
 KSPATH="${ANDROID_KSPATH:-$KEYPASS}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-VERSION="1.0"
+VERSION="2.2"
 
 export JAVA_HOME="$JAVA"
 export PATH="$JAVA/bin:$PATH"

@@ -160,7 +160,12 @@ class EngineService : Service() {
         val lon = readCoord(intent, "lon", "lng", "longitude")
         if (intent?.hasExtra("timeout") == true)
             lifetimeMs = intent.getLongExtra("timeout", DEFAULT_LIFETIME_MS)
-        if (intent?.getBooleanExtra("persistent", false) == true) pinPersistent = true
+        // Persistence is per-request. A sticky `true` used to make every later
+        // pin immortal (expiry never re-armed) — absent extra = not persistent.
+        if (intent?.hasExtra("persistent") == true)
+            pinPersistent = intent.getBooleanExtra("persistent", false)
+        else if (!running)
+            pinPersistent = false
         if (intent?.hasExtra("speed_kph") == true) {
             val s = readCoord(intent, "speed_kph")
             if (!s.isNaN()) jogSpeedKph = s.coerceIn(0.5, 30.0)
@@ -467,9 +472,33 @@ class EngineService : Service() {
         wl = null
         try { lm.setTestProviderEnabled(LocationManager.GPS_PROVIDER, false) } catch (t: Throwable) {}
         try { lm.removeTestProvider(LocationManager.GPS_PROVIDER) } catch (t: Throwable) {}
+        handBackToRealLocation()
         stopForeground(true)
         Log.i(TAG, String.format(Locale.US, "engine stopped: %.0fm, %d steps", totalMeters, totalSteps))
         super.onDestroy()
+    }
+
+    /** Force a real (non-mock) fix after the mock provider is removed.
+     *  Without this, `fused` keeps serving the last mock fix — still flagged
+     *  `mock` — until some other app happens to ask for a real one, which
+     *  leaves the game holding a stale mocked position. */
+    private fun handBackToRealLocation() {
+        try {
+            val listener = object : android.location.LocationListener {
+                override fun onLocationChanged(location: Location) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+            for (p in arrayOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)) {
+                try { lm.requestLocationUpdates(p, 0L, 0f, listener, Looper.getMainLooper()) } catch (t: Throwable) {}
+            }
+            Handler(Looper.getMainLooper()).postDelayed({
+                try { lm.removeUpdates(listener) } catch (t: Throwable) {}
+            }, 10_000L)
+            Log.i(TAG, "real-fix handback requested")
+        } catch (t: Throwable) {
+            Log.e(TAG, "handback failed", t)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

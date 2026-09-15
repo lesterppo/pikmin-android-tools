@@ -189,6 +189,13 @@ class MainActivity : Activity() {
             setOnClickListener { applyMockLocImpl() }
         }.also { parent.addView(it) }
 
+        // Mushroom-safe path: fixed 90 s, then auto-release back to real GPS.
+        // Use this when a game action refuses while an endless hold-pin runs.
+        Button(this).apply {
+            text = "Mushroom pin (90 s auto-release)"
+            setOnClickListener { startMushroomPin() }
+        }.also { parent.addView(it) }
+
         map = WebView(this)
         map.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360))
         setupMap()
@@ -259,10 +266,48 @@ class MainActivity : Activity() {
             return
         }
         moveMapMarker(lat, lon)
+        warnIfDistant(lat, lon)
         if (injectToggle.isChecked) EngineService.startPin(this, lat, lon, persistent = true)
         Toast.makeText(this, String.format(Locale.US, "Pin %.6f, %.6f (inject %s)",
             lat, lon, if (injectToggle.isChecked) "ON" else "OFF"), Toast.LENGTH_SHORT).show()
         refreshPinStatus()
+    }
+
+    /** Natural-lifetime pin: fixed 90 s, then hands the fix back to real GPS.
+     *  Try this first when a game action refuses while the hold-pin is active. */
+    private fun startMushroomPin() {
+        val lat = parse(latIn.text.toString())
+        val lon = parse(lonIn.text.toString())
+        if (lat.isNaN() || lon.isNaN() || !isValidCoord(lat, lon)) {
+            Toast.makeText(this, "Enter valid lat -90..90, lon -180..180", Toast.LENGTH_LONG).show()
+            return
+        }
+        moveMapMarker(lat, lon)
+        warnIfDistant(lat, lon)
+        EngineService.startPin(this, lat, lon, persistent = false)
+        Toast.makeText(this, String.format(Locale.US, "Mushroom pin 90 s @ %.6f, %.6f", lat, lon),
+            Toast.LENGTH_LONG).show()
+        refreshPinStatus()
+    }
+
+    /** Warn when the target is a long way from the real position: big jumps are
+     *  flagged by the game's anti-cheat even when the mock itself is accepted. */
+    private fun warnIfDistant(lat: Double, lon: Double) {
+        try {
+            val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+            val real = try { lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) }
+                catch (t: Throwable) { null }
+                ?: try { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { null }
+            if (real == null || real.isMock) return
+            val res = FloatArray(1)
+            android.location.Location.distanceBetween(real.latitude, real.longitude, lat, lon, res)
+            val km = res[0] / 1000.0
+            if (km > 2.0) {
+                Toast.makeText(this, String.format(Locale.US,
+                    "%.0f km from real position — large jumps get blocked", km),
+                    Toast.LENGTH_LONG).show()
+            }
+        } catch (t: Throwable) {}
     }
 
     private fun startPollPin() {

@@ -35,9 +35,15 @@
         <!-- Unified engine service (v2): ONE service owns the single mock GPS
              provider, live-switchable between mock-pin and jog modes. This
              removes the intra-app conflict of the v1 MockService+JogService
-             pair. exported=true so adb can drive it:
-               am start-foreground-service -n com.pikminbot.tools/.EngineService -es mode pin -ef lat X -ef lon Y [-ez persistent true]
-               am start-foreground-service -n com.pikminbot.tools/.EngineService -es mode jog [-es jogmode loop|straight ...] [-es cmd stop]
+             pair. exported=true so adb can drive it. Use the LONG option form
+             for extras (two dashes before es / ef / ez) — a single dash makes
+             am treat the value as a package name and silently drop the extras:
+               am start-foreground-service -n com.pikminbot.tools/.EngineService
+                 with string extra mode=pin, float extras lat and lon,
+                 optional boolean extra persistent=true
+                 (boolean persistent false = 90 s natural lifetime)
+               mode=jog with jogmode=loop|straight, speed_kph, steps_per_sec,
+                 radius_m, heading, duration_min; cmd=stop releases the mock
              Safe: injection fails unless THIS app holds the MOCK_LOCATION appop. -->
         <service
             android:name=".EngineService"

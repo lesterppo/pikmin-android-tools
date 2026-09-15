@@ -5,11 +5,16 @@
 [![MockLoc v1.10](https://img.shields.io/badge/MockLoc-v1.10-4caf50)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10)
 [![HC Step Injector v2.1](https://img.shields.io/badge/HC%20Step%20Injector-v2.1-2196f3)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1)
 [![Jogger v1.2](https://img.shields.io/badge/Jogger-v1.2-ff9800)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2)
+[![PikminBot Tools v2.2](https://img.shields.io/badge/PikminBot%20Tools-v2.2-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.2)
+[![Pikmin Clones v1.0](https://img.shields.io/badge/Pikmin%20Clones-v1.0-795548)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0)
 
 Open-source Android companion apps for **Pikmin Bloom**: a **mock GPS
 location** app with a built-in map (MockLoc), a **Health Connect + Google Fit
-step injector** (HC Step Injector), and a **jogging simulator** that moves your
-GPS position and streams steps at a configurable pace (Jogger).
+step injector** (HC Step Injector), a **jogging simulator** that moves your GPS
+position and streams steps at a configurable pace (Jogger), a **combined app**
+that drives one engine from either UI (PikminBot Tools), and **Pikmin Clones** —
+tooling plus a picker app for running **several Pikmin Bloom accounts on the
+same phone**, with one pin and one step write reaching every copy at once.
 
 All three apps ship as pre-built, signed APKs you can install directly with
 `adb`, work without root, and are driven by both a small UI and headless
@@ -22,6 +27,7 @@ Kotlin (Gradle), released under the MIT license.
 - [1. MockLoc — mock GPS location with map](#1-mockloc--mock-gps-location-with-map)
 - [2. HC Step Injector — Health Connect & Google Fit steps](#2-hc-step-injector--health-connect--google-fit-steps)
 - [3. Jogger — jogging simulator](#3-jogger--jogging-simulator)
+- [4. Pikmin Clones — several accounts on one phone](#4-pikmin-clones--several-accounts-on-one-phone)
 - [FAQ](#faq)
 - [Repository layout](#repository-layout)
 - [License](#license)
@@ -33,6 +39,8 @@ Kotlin (Gradle), released under the MIT license.
 | **MockLoc** | `com.pikminbot.mockloc` | [mockloc-v1.10.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10) |
 | **HC Step Injector** | `com.pikminbot.hcsteps` | [hc-step-injector-v2.1.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1) |
 | **Jogger** | `com.pikminbot.jogger` | [pikmin-jogger-v1.2.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2) |
+| **PikminBot Tools** (MockLoc + Jogger in one app, one engine) | `com.pikminbot.tools` | [pikmin-tools-v2.2.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.2) |
+| **Pikmin Clones** (instance picker for profile copies) | `com.peter.pikminclones` | [pikmin-clones-launcher-v1.0.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0) |
 
 Install any of them with:
 
@@ -231,6 +239,43 @@ Requires the Android SDK, JDK 17 and a Gradle 8.11.x distribution.
 
 ---
 
+## 4. Pikmin Clones — several accounts on one phone
+
+Run the original app plus any number of re-packaged clones (`com.pikmin.c1`,
+`c2`, …) and/or a copy installed into a profile (Samsung dual-app profile,
+work profile, Secure Folder), each signed into a different account, and keep
+**one mock GPS pin and one Health Connect step write driving all of them at
+once** — both injectors act at Android-user level, so in user 0 a single action
+covers every clone.
+
+Verified on a Samsung SM-S7210 (Android 16), Pikmin Bloom 153.0: original +
+3 clones + 1 profile copy, all four main instances receiving the same pin and
+the same steps.
+
+- **Login**: use the vendor's **web-OAuth** provider (Nintendo Account for
+  Pikmin Bloom). Google sign-in cannot work in a re-signed clone — the signing
+  certificate is not registered in the vendor's OAuth project — and Facebook
+  fails its key-hash check. The **profile copy** keeps every provider working.
+- **Launcher**: an app installed into a profile gets no icon, so the bundle
+  includes a tiny **Pikmin Clones** picker that lists every instance on the
+  device (via `LauncherApps`, no root/Shizuku) and opens the one you tap.
+- **Two crashes that must be patched** for any re-packaged clone of this app:
+  a `signature`-level permission clash (`INSTALL_FAILED_DUPLICATE_PERMISSION`)
+  and a cross-app shared-login query that throws `SecurityException` and kills
+  the app on its first screen. Both fixes ship here.
+- **Step source per account**: Health Connect must be linked in each account's
+  own in-game settings (設定 → 隱私與步數); `pm grant` alone leaves the account
+  sitting at a few steps.
+- **Stale-pin trap**: a pin without `persistent=true` re-injects for ~90 s and
+  then auto-releases, silently returning the phone to real GPS — the usual
+  cause of "the coordinates did not change".
+
+Full guide, build scripts and verification helpers:
+[`pikmin-clones/`](pikmin-clones/) — `clones.sh status | pin | steps | run`,
+`build_clone.sh`, `patch_sharedlogin.py`, `verify_gps.sh`, `verify_steps.sh`.
+
+---
+
 ## FAQ
 
 ### Do these apps work with Pikmin Bloom?
@@ -241,6 +286,16 @@ through Google Fit / Health Connect:
 - **MockLoc** and **Jogger** change the GPS location Pikmin Bloom sees.
 - **HC Step Injector** and **Jogger** write step records into Health Connect,
   which Pikmin Bloom reads via the Fit SDK.
+
+### Can I run several Pikmin Bloom accounts at the same time?
+
+Yes. Re-package the app under a new package name (or install the original into
+a profile) so each copy has its own data, sign in to each copy with a different
+account, and use a web-OAuth provider (Nintendo Account) for the clones — see
+[Pikmin Clones](#4-pikmin-clones--several-accounts-on-one-phone). One mock GPS
+pin and one Health Connect step write then cover every copy at once, because
+both act at Android-user level. Note that multi-accounting may itself breach the
+game's Terms of Service.
 
 ### Do I need root?
 
@@ -294,6 +349,8 @@ with a persistent key so `adb install -r` upgrades in place.
 mockloc/                      # MockLoc source (Java, aapt2/d8 build)
 hc-step-injector/             # HC Step Injector source (Kotlin/Gradle)
 pikmin-jogger/                # Jogger source (Kotlin/Gradle, exported FGS)
+pikmin-tools/                 # PikminBot Tools source (Kotlin/Gradle, unified engine)
+pikmin-clones/                # multi-account clone tooling + Pikmin Clones picker app
 releases/                     # pre-built, signed APKs (downloadable)
 ```
 
