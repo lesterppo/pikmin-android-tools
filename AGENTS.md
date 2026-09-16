@@ -53,6 +53,21 @@ paths are ever committed.**
   secure setting alone does NOT move the appop (verified on-device).
   PC-side helper: `fix-mock-slot.sh` (adb repair + optional engine re-arm).
 
+### PikminBot Repair (`desktop/`)
+- Single-file Python 3 + tkinter desktop app (no third-party deps; GUI is
+  drivable by keys F5/F6/F7/F8 so it can be tested with `xdotool key F5`).
+- One-click repair over wireless adb. Discovery order: cached serial → mDNS →
+  LAN port scan of 30000-49999 (the wireless-debug port ROTATES, so a fixed
+  `IP:5555` is wrong most of the time). Scans leave `offline` transports
+  behind → always `cleanup_offline()` before a bare `adb shell`.
+- CLI modes used for testing and by scripts: `--status [--json]`, `--repair`,
+  `--connect`, `--discover`, `--arm`, `--pin LAT LON`, `--stop`,
+  `--pair IP:PORT CODE`.
+- Never `adb shell` without `-s <serial>` once more than one transport exists
+  ("more than one device/emulator" otherwise).
+- `install.sh` installs app + launcher + icon + `.desktop`; `--uninstall`
+  reverses it. Nothing in the repo hardcodes a home path.
+
 ### Pikmin Clones (`pikmin-clones/`)
 - Multi-account tooling: re-package the app under a new package name so several
   accounts stay signed in side by side, plus a picker app

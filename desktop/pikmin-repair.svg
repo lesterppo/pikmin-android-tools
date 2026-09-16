@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PikminBot Repair icon: a map pin with a wrench, over a phone outline. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f2a44"/>
+      <stop offset="1" stop-color="#3c6e9a"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fd694"/>
+      <stop offset="1" stop-color="#2e9c56"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)"/>
+  <rect x="42" y="18" width="44" height="92" rx="8" fill="none" stroke="#cbd8e6" stroke-width="4"/>
+  <rect x="56" y="24" width="16" height="4" rx="2" fill="#cbd8e6"/>
+  <path d="M64 34c-12.7 0-23 10.3-23 23 0 17 23 37 23 37s23-20 23-37c0-12.7-10.3-23-23-23z"
+        fill="url(#pin)" opacity="0.95"/>
+  <circle cx="64" cy="57" r="9" fill="#12321f"/>
+  <path d="M92 74l4 4 10-10-4-4 2-6-6 2-10 10-6-2-2 6 6-2z" fill="#ffd166" opacity="0.95"/>
+</svg>

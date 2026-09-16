@@ -400,6 +400,43 @@ with a persistent key so `adb install -r` upgrades in place.
 
 ---
 
+## 6. PikminBot Repair — Linux desktop app (one-click repair)
+
+`desktop/` is a small Linux desktop app that repairs the phone's mock-location
+slot **in one click, without touching the phone**, over wireless debugging.
+
+```bash
+cd desktop && ./install.sh          # installs to ~/.local/share + app-menu entry
+pikmin-repair                       # GUI
+pikmin-repair --repair              # headless one-click repair
+```
+
+What the button does: `appops set <pkg> android:mock_location allow` →
+`settings put secure mock_location <pkg>` → verify → re-arm the last pin/jog
+(recovered from the app's own logcat, or from saved coordinates).
+
+Features:
+
+* finds the phone by itself — cached endpoint → mDNS → **LAN port scan of the
+  wireless-debugging range** (the debug port rotates, so a hardcoded
+  `IP:5555` goes stale; the scan is what makes reconnection reliable);
+* live health panel: ADB link, Developer options, `MOCK_LOCATION` appop,
+  selected package, engine state (including the app's *degraded* state),
+  live mock fix, installed app version;
+* **Pair device** dialog for first-time setup (IP:PORT + code from
+  *Developer options → Wireless debugging → Pair device with pairing code*);
+* optional *Auto-repair while this window is open* (default OFF — the durable
+  self-heal lives on the phone, this is only a convenience);
+* CLI modes for scripts: `--status [--json]`, `--repair`, `--connect`,
+  `--discover`, `--arm`, `--pin LAT LON`, `--stop`, `--pair IP:PORT CODE`;
+* keyboard shortcuts: `F5` repair, `F6` connect, `F7` re-arm pin, `F8` stop;
+* logs to `~/.cache/pikmin-repair/last-run.log` (paste it into a bug report).
+
+Requires `python3` + `python3-tk` (no other packages) and `adb`
+(`adb` on PATH, in `$ANDROID_SDK/platform-tools`, or `~/android-sdk/platform-tools`).
+If the phone's wireless debugging is off or was re-paired, use **Pair device**;
+if the endpoint rotated, **Connect** finds it again.
+
 ## Repository layout
 
 ```
@@ -409,6 +446,8 @@ pikmin-jogger/                # Jogger source (Kotlin/Gradle, exported FGS)
 pikmin-tools/                 # PikminBot Tools source (Kotlin/Gradle, unified engine)
 pikmin-clones/                # multi-account clone tooling + Pikmin Clones picker app
 releases/                     # pre-built, signed APKs (downloadable)
+desktop/                      # PikminBot Repair — Linux desktop app (python3-tk)
+fix-mock-slot.sh              # adb-only repair helper
 ```
 
 ## License
