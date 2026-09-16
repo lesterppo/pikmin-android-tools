@@ -61,6 +61,31 @@ class EngineService : Service() {
         @JvmStatic var lastError = ""
         @JvmStatic var pinPersistent = false
 
+        /** True while injection is refused (mock slot lost) but the service keeps
+         *  running so it can resume by itself once the slot is restored. */
+        @JvmStatic var degraded = false
+
+        // Last explicit request, replayed by rearm() after a repair so the user
+        // never has to re-enter a pin or jog after a Developer options trip.
+        @JvmStatic var lastMode = "pin"
+        @JvmStatic var lastLat = 0.0
+        @JvmStatic var lastLon = 0.0
+        @JvmStatic var lastPersistent = true
+
+        /** Replay the last pin/jog request (used by RepairActivity + self-heal). */
+        @JvmStatic fun rearm(ctx: Context) {
+            try {
+                if (lastMode == "jog") {
+                    startJog(ctx, lastLat, lastLon, jogMode, jogSpeedKph, jogStepsPerSec,
+                        jogRadiusM, jogHeadingDeg, jogDurationMin)
+                } else if (lastLat != 0.0 || lastLon != 0.0) {
+                    startPin(ctx, lastLat, lastLon, lastPersistent)
+                }
+            } catch (t: Throwable) {
+                Log.e("PikminBotTools", "rearm failed", t)
+            }
+        }
+
         // Jog parameters (persist across runs).
         @JvmStatic var jogSpeedKph = 10.0
         @JvmStatic var jogStepsPerSec = 2.0
@@ -116,6 +141,7 @@ class EngineService : Service() {
     private var lifetimeMs = DEFAULT_LIFETIME_MS
 
     private var lastFlushMs = 0L
+    private var lastDegradedNotifMs = 0L
     private var stepsSinceFlush = 0.0
     private var lastStepMs = 0L
 
@@ -136,10 +162,26 @@ class EngineService : Service() {
         }
     }
 
+    private val slotListener: (String) -> Unit = { ev ->
+        Log.i(TAG, "slot event: $ev")
+        if (ev.startsWith("slot-lost") || ev.startsWith("dev-mode") || ev.startsWith("selection=")) {
+            // A developer-mode toggle / selection change may or may not have cost
+            // us the slot — probe and repair either way (throttled inside SelfHeal).
+            if (!SelfHeal.slotOk(this)) {
+                val fixed = SelfHeal.attemptRepair(this, "SlotWatch:$ev")
+                if (!fixed) markDegraded() else clearDegraded()
+            } else {
+                clearDegraded()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         createChannel()
+        SlotEvents.subscribe(slotListener)
+        SlotWatch.start(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -201,6 +243,9 @@ class EngineService : Service() {
             if (!lat.isNaN() && !lon.isNaN()) {
                 curLat = lat
                 curLon = lon
+                lastLat = lat
+                lastLon = lon
+                lastMode = wantMode
                 if (mode == "jog" && jogMode == "loop") {
                     centerLat = lat
                     centerLon = lon
@@ -244,6 +289,10 @@ class EngineService : Service() {
         curLon = slon
 
         mode = wantMode
+        lastMode = mode
+        lastLat = slat
+        lastLon = slon
+        lastPersistent = pinPersistent
         startEpochMs = System.currentTimeMillis()
         totalMeters = 0.0
         totalSteps = 0L
@@ -366,22 +415,29 @@ class EngineService : Service() {
             } catch (e: IllegalArgumentException) {
                 // already added
             } catch (e: SecurityException) {
-                lastError = "MOCK_LOCATION denied; selecting as mock location app + appop needed"
-                Log.e(TAG, lastError)
-                val fixed = SelfHeal.attemptRepair(this, "EngineService.addTestProvider")
-                if (fixed || SelfHeal.isMockAppSelected(this)) {
-                    try {
-                        lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                        lm.addTestProvider(LocationManager.GPS_PROVIDER, false, false, false,
-                            false, true, true, true, 3, 2)
-                        Log.i(TAG, "self-heal retry succeeded")
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "self-heal retry failed", t)
-                        stopSelf()
-                        return
-                    }
-                } else {
-                    stopSelf()
+                lastError = "MOCK_LOCATION denied — mock location slot lost"
+                // Log once per degradation, not once per 900 ms tick.
+                if (!degraded) Log.e(TAG, lastError)
+                SelfHeal.noteSecurityException()
+                // Repair chain (root -> Shizuku -> setting -> guided screen).
+                // The service deliberately KEEPS RUNNING when the slot cannot be
+                // restored: the tick loop retries every 900 ms, so the moment the
+                // user re-selects the app in Developer options injection resumes by
+                // itself with no re-tap. (v2.2 stopped the service here, which
+                // looked like "the app died" after a developer-mode toggle.)
+                if (!SelfHeal.attemptRepair(this, "EngineService.addTestProvider")) {
+                    markDegraded()
+                    return
+                }
+                try {
+                    lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                    lm.addTestProvider(LocationManager.GPS_PROVIDER, false, false, false,
+                        false, true, true, true, 3, 2)
+                    Log.i(TAG, "self-heal retry succeeded")
+                    clearDegraded()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "self-heal retry failed", t)
+                    markDegraded()
                     return
                 }
             }
@@ -395,9 +451,36 @@ class EngineService : Service() {
             lm.setTestProviderLocation(LocationManager.GPS_PROVIDER, loc)
             lastTick = System.currentTimeMillis()
             tickCount++
+            if (degraded) clearDegraded()
         } catch (t: Throwable) {
             Log.e(TAG, "inject failed", t)
             lastError = t.message ?: "inject failed"
+        }
+    }
+
+    /** Slot lost: keep serving, surface a repair notification, resume later. */
+    private fun markDegraded() {
+        if (!degraded) {
+            degraded = true
+            Log.w(TAG, "engine degraded: mock location slot not ours (${SelfHeal.describe(this)})")
+        }
+        lastError = "mock location slot lost — repair needed"
+        // Post once on transition, then at most once a minute. The tick loop
+        // retries every 900 ms, so an unguarded post would spam the shade.
+        val now = System.currentTimeMillis()
+        if (lastDegradedNotifMs == 0L || now - lastDegradedNotifMs > 60_000L) {
+            lastDegradedNotifMs = now
+            SelfHeal.postFixNotification(this, "EngineService")
+        }
+        callSuperNotificationRefresh()
+    }
+
+    private fun clearDegraded() {
+        if (degraded) {
+            degraded = false
+            lastError = ""
+            Log.i(TAG, "engine recovered: slot restored, injection resumed")
+            SelfHeal.clearFixNotification(this)
         }
     }
 
@@ -441,6 +524,23 @@ class EngineService : Service() {
     }
 
     private fun buildNotification(): Notification {
+        if (degraded) {
+            val b = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                Notification.Builder(this, "engine") else Notification.Builder(this)
+            val pi = android.app.PendingIntent.getActivity(
+                this, 7,
+                android.content.Intent(this, RepairActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            return b.setContentTitle("Mock location lost — tap to repair")
+                .setContentText("Developer options changed. Engine is holding, will resume itself.")
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentIntent(pi)
+                .build()
+        }
         val title: String
         val text: String
         if (mode == "jog") {
@@ -462,6 +562,8 @@ class EngineService : Service() {
 
     override fun onDestroy() {
         running = false
+        SlotEvents.unsubscribe(slotListener)
+        SlotWatch.stop()
         loop?.removeCallbacks(tick)
         loop?.removeCallbacks(expiryTask)
         loop = null

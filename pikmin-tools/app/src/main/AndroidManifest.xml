@@ -62,6 +62,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- In-app mock-location repair screen. Opened by the self-heal
+             notification, by MainActivity, or directly over adb:
+               am start -n com.pikminbot.tools/.RepairActivity -->
+        <activity
+            android:name=".RepairActivity"
+            android:exported="true" />
+
         <!-- Required by Health Connect to READ records (VIEW_PERMISSION_USAGE) -->
         <activity
             android:name=".PermissionUsageActivity"

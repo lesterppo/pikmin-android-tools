@@ -35,9 +35,23 @@ paths are ever committed.**
 ### PikminBot Tools (`com.pikminbot.tools`)
 - Kotlin + Gradle (`pikmin-tools/`). MockLoc + Jogger UIs over ONE
   `EngineService` (v2.0 merger) so the two never fight over the single
-  mock-location slot. `versionName 2.2`.
+  mock-location slot. `versionName 2.3`.
 - v2.2: `persistent` is per-request (a sticky `true` used to make every later
   pin immortal) and `onDestroy` hands a real fix back to the phone.
+- v2.3 self-heal (the "Developer options off/on breaks it" fix). Toggling
+  Developer options clears the mock-location slot and returns the
+  `MOCK_LOCATION` appop to deny while the `mock_location` setting can still
+  name the app, so Settings looks right and injection is refused.
+  `SlotWatch.kt` watches `development_settings_enabled` + `mock_location`
+  (ContentObserver + 3 s poll, refcounted across Activity/Service);
+  `SelfHeal.kt` probes the REAL appop (`AppOpsManager.unsafeCheckOpNoThrow`,
+  never the setting alone) and repairs via root → Shizuku →
+  WRITE_SECURE_SETTINGS → notification, with progressive backoff;
+  `RepairActivity.kt` is the in-app repair screen. `EngineService` no longer
+  `stopSelf()`s on a lost slot — it runs degraded and resumes by itself.
+  NEVER call `attemptRepair` without re-checking the appop: writing the
+  secure setting alone does NOT move the appop (verified on-device).
+  PC-side helper: `fix-mock-slot.sh` (adb repair + optional engine re-arm).
 
 ### Pikmin Clones (`pikmin-clones/`)
 - Multi-account tooling: re-package the app under a new package name so several

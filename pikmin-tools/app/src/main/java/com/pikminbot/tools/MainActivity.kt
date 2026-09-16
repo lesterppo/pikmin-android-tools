@@ -126,8 +126,16 @@ class MainActivity : Activity() {
         // engine-level status + self-heal shared footer
         engineStatus = TextView(this).apply { text = "Engine: idle"; textSize = 12f; setPadding(0, dp(4), 0, 0) }
         root.addView(engineStatus)
-        healNote = TextView(this).apply { setTextColor(Color.rgb(150, 60, 0)); textSize = 12f }
+        healNote = TextView(this).apply {
+            setTextColor(Color.rgb(150, 60, 0)); textSize = 12f
+            setPadding(0, dp(4), 0, dp(4))
+            setOnClickListener { openRepair() }
+        }
         root.addView(healNote)
+        root.addView(Button(this).apply {
+            text = "Mock location repair / status"
+            setOnClickListener { openRepair() }
+        })
 
         setContentView(root)
 
@@ -135,6 +143,8 @@ class MainActivity : Activity() {
         jogTabBtn.setOnClickListener { selectTab("jogger") }
         selectTab("mockloc")
 
+        SlotEvents.subscribe(slotListener)
+        SlotWatch.start(this)
         requestLocationPerms()
         refreshJogStatus()  // init HC hint
         poll.postDelayed(pollTask, 400)
@@ -505,12 +515,35 @@ class MainActivity : Activity() {
             engineStatus.text = if (e.running) {
                 "mode=${e.mode} · ${e.tickCount} ticks · ${"%.0f".format(e.totalMeters)}m/${e.totalSteps} steps"
             } else "Engine: idle"
-        healNote.text = if (SelfHeal.lastSecurityExceptionMs > 0L) {
+        val slotOk = SelfHeal.slotOk(this)
+        if (slotOk) {
+            healNote.setTextColor(Color.rgb(0, 120, 0))
+            healNote.text = "Mock location slot: OK (appop allow) · tap for repair options"
+        } else {
+            healNote.setTextColor(Color.rgb(180, 0, 0))
+            healNote.text = "Mock location slot LOST — injection will be refused.\n" +
+                "Tap here to repair (${SelfHeal.describe(this)})"
+        }
+        if (SelfHeal.lastSecurityExceptionMs > 0L && slotOk) {
             val ago = ((System.currentTimeMillis() - SelfHeal.lastSecurityExceptionMs) / 1000).coerceAtLeast(0)
-            "SecurityException ${ago}s ago · self-heal ${SelfHeal.attempts}/3 · last repair: ${SelfHeal.lastRepair.ifBlank { "none" }}"
-        } else "No SecurityException this session."
+            val note = " · recovered ${ago}s ago via ${SelfHeal.lastRepair.ifBlank { "?" }}"
+            healNote.text = healNote.text.toString() + note
+        }
         if (EngineService.running && EngineService.mode == "jog") refreshJogStatus()
         else if (EngineService.running && EngineService.mode == "pin") refreshPinStatus()
+    }
+
+    private fun openRepair() {
+        try {
+            startActivity(Intent(this, RepairActivity::class.java))
+        } catch (t: Throwable) {
+            Log.e("PikminBotTools", "open repair failed", t)
+        }
+    }
+
+    /** SlotWatch events (developer-mode toggle, selection change) refresh the banner. */
+    private val slotListener: (String) -> Unit = { ev ->
+        runOnUiThread { refreshEngineStatus() }
     }
 
     private fun appendLog(s: String) {
@@ -616,6 +649,24 @@ class MainActivity : Activity() {
         const val EXTRA_AUTOSTART = "autostart"
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Coming back from Developer options: re-probe and repair immediately so
+        // a pin can be re-armed without the user thinking about it.
+        poll.postDelayed({
+            try {
+                if (!SelfHeal.slotOk(this)) {
+                    SelfHeal.attemptRepair(this, "MainActivity.resume")
+                    if (EngineService.running && !SelfHeal.slotOk(this)) EngineService.degraded = true
+                } else if (EngineService.degraded) {
+                    EngineService.degraded = false
+                    EngineService.rearm(this)
+                }
+            } catch (t: Throwable) {}
+            refreshEngineStatus()
+        }, 600)
+    }
+
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -624,6 +675,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         poll.removeCallbacks(pollTask)
+        SlotEvents.unsubscribe(slotListener)
+        SlotWatch.stop()
         super.onDestroy()
     }
 }

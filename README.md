@@ -5,7 +5,7 @@
 [![MockLoc v1.10](https://img.shields.io/badge/MockLoc-v1.10-4caf50)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10)
 [![HC Step Injector v2.1](https://img.shields.io/badge/HC%20Step%20Injector-v2.1-2196f3)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1)
 [![Jogger v1.2](https://img.shields.io/badge/Jogger-v1.2-ff9800)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2)
-[![PikminBot Tools v2.2](https://img.shields.io/badge/PikminBot%20Tools-v2.2-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.2)
+[![PikminBot Tools v2.3](https://img.shields.io/badge/PikminBot%20Tools-v2.3-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.3)
 [![Pikmin Clones v1.0](https://img.shields.io/badge/Pikmin%20Clones-v1.0-795548)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0)
 
 Open-source Android companion apps for **Pikmin Bloom**: a **mock GPS
@@ -39,7 +39,7 @@ Kotlin (Gradle), released under the MIT license.
 | **MockLoc** | `com.pikminbot.mockloc` | [mockloc-v1.10.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10) |
 | **HC Step Injector** | `com.pikminbot.hcsteps` | [hc-step-injector-v2.1.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1) |
 | **Jogger** | `com.pikminbot.jogger` | [pikmin-jogger-v1.2.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2) |
-| **PikminBot Tools** (MockLoc + Jogger in one app, one engine) | `com.pikminbot.tools` | [pikmin-tools-v2.2.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.2) |
+| **PikminBot Tools** (MockLoc + Jogger in one app, one engine, self-healing) | `com.pikminbot.tools` | [pikmin-tools-v2.3.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.3) |
 | **Pikmin Clones** (instance picker for profile copies) | `com.peter.pikminclones` | [pikmin-clones-launcher-v1.0.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0) |
 
 Install any of them with:
@@ -239,7 +239,55 @@ Requires the Android SDK, JDK 17 and a Gradle 8.11.x distribution.
 
 ---
 
-## 4. Pikmin Clones — several accounts on one phone
+## 4. PikminBot Tools — MockLoc + Jogger in one app
+
+Both UIs (`[ MockLoc ] [ Jogger ]` tabs) drive ONE engine service, so the two
+never fight over the single mock-location slot.
+
+```bash
+adb install -r releases/pikmin-tools-v2.3.apk
+```
+
+The in-app **Mock location repair / status** button (and the footer status line)
+shows the live slot state: `appop` + which package Settings currently names.
+
+### Self-heal after toggling Developer options (v2.3)
+
+Switching **Developer options off and on** clears Android's "Select mock
+location app" slot. The `MOCK_LOCATION` appop then returns to its default
+(*deny*) while Settings can still show the app as selected — so the app looks
+configured while every injection is refused.
+
+What v2.3 does about it, on its own:
+
+* watches Developer options + the mock-location selection (ContentObserver plus
+  a 3 s poll) and notices a change within seconds — not only when injection
+  next fails;
+* runs the repair chain **root → Shizuku → WRITE_SECURE_SETTINGS → guided
+  screen**, with progressive backoff and one notification per minute (not one
+  per 900 ms tick);
+* **keeps the engine running in degraded mode** instead of stopping it, so the
+  moment the slot is yours again injection resumes by itself — no re-tapping,
+  no re-entering a pin (v2.2 stopped the service, which looked like "the app
+  died");
+* posts a **"Mock location lost — tap to repair"** notification that opens the
+  in-app repair screen: live appop/selection status, one-tap *Open Developer
+  options*, and a 1 s watcher that re-arms the last pin/jog and closes itself as
+  soon as the slot is healthy.
+
+Fully automatic repair (zero taps) needs one privileged channel: **Shizuku**
+(running and permitted) or **root**. An app can never allow its own appop —
+Android requires `MANAGE_APP_OPS_MODES` (signature|privileged) for that — so
+without Shizuku/root, one trip through Developer options is unavoidable.
+
+From a computer over wireless ADB:
+
+```bash
+./fix-mock-slot.sh                                  # repair + verify the slot
+./fix-mock-slot.sh --restart-pin 22.3193 114.1694   # repair, then re-arm the engine
+```
+
+## 5. Pikmin Clones — several accounts on one phone
 
 Run the original app plus any number of re-packaged clones (`com.pikmin.c1`,
 `c2`, …) and/or a copy installed into a profile (Samsung dual-app profile,
@@ -322,6 +370,15 @@ sync from Health Connect / the cloud first. Open the Google Fit app once to
 force a sync, then relaunch Pikmin Bloom. Also confirm the health permission
 was granted (`adb shell pm grant` for Jogger; the HC Step Injector UI for the
 injector).
+
+### Why did the app stop injecting after I toggled Developer options?
+
+Turning Developer options off and on resets Android's single "Select mock
+location app" slot, which puts the `MOCK_LOCATION` appop back to deny — even
+though Settings can still list the app. PikminBot Tools v2.3 detects that
+within seconds and repairs itself as far as its permissions allow, keeping the
+engine alive so injection resumes on its own once the slot is restored. From a
+computer, `./fix-mock-slot.sh` restores the appop directly.
 
 ### Why is only one mock-location app working at a time?
 
