@@ -385,15 +385,8 @@ def repair(serial, cfg, rearm=True, stop_first=False, emit=None):
     step("verify", True, "appop allow + selected")
 
     if rearm:
-        lat = cfg.get("last_lat")
-        lon = cfg.get("last_lon")
-        if lat is not None and lon is not None:
-            persistent = " --ez persistent true" if cfg.get("persist", True) else ""
-            sh(f"am start-foreground-service -n {pkg}/.EngineService "
-               f"--es mode pin --ef lat {lat} --ef lon {lon}{persistent}", serial=serial)
-            step("re-arm pin", True, f"{lat}, {lon}")
-        else:
-            step("re-arm pin", False, "no saved coordinates yet (pin once from the phone)")
+        ok, detail = arm_engine(serial, cfg)
+        step(f"re-arm {cfg.get('last_mode', 'pin')}", ok, detail)
     res["ok"] = True
     return res
 
@@ -406,17 +399,91 @@ def stop_engine(serial, cfg):
     return {"ok": True, "provider_left": (out or "0").strip()}
 
 
-def remember_pin(cfg, serial):
-    """Learn the last pin from the app's own logcat so re-arm can replay it."""
-    rc, out = sh("logcat -d -s PikminBotTools 2>/dev/null | grep -m1 'pin @'", serial=serial)
-    m = re.search(r"pin @ ([-\d.]+), ([-\d.]+)", out or "")
-    if m:
-        cfg["last_lat"] = float(m.group(1))
-        cfg["last_lon"] = float(m.group(2))
-        cfg["persist"] = "(lifetime" not in out
+def _line_epoch(line):
+    """Epoch seconds for a logcat line ('09-17 02:33:44.713 ...'), or 0."""
+    m = re.search(r"^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d+)", line)
+    if not m:
+        return 0.0
+    mo, d, h, mi, sec = (int(m.group(i)) for i in range(1, 6))
+    try:
+        return datetime(datetime.now().year, mo, d, h, mi, sec).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _line_age_s(line):
+    """Seconds since a logcat line was written (lines look like
+    '09-17 02:33:44.713  12577 ...')."""
+    m = re.search(r"^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d+)", line)
+    if not m:
+        return 9999.0
+    mo, d, h, mi, sec = (int(m.group(i)) for i in range(1, 6))
+    try:
+        ts = datetime(datetime.now().year, mo, d, h, mi, sec)
+    except ValueError:
+        return 9999.0
+    if ts > datetime.now():                 # year boundary
+        ts = ts.replace(year=ts.year - 1)
+    return (datetime.now() - ts).total_seconds()
+
+
+def remember_pin(cfg, serial, max_age_s=20.0):
+    """Learn the last engine request (pin OR jog) from the app's own logcat.
+
+    MockLoc and Jogger share ONE EngineService, ONE mock provider and ONE
+    MOCK_LOCATION appop — repairing the slot frees BOTH — but a re-arm must
+    replay the right MODE. Two traps: a live mode switch logs
+    "engine update: mode=jog @ lat, lon" (no space before the mode name), and a
+    repair's own re-arm writes a fresh "pin @" line, which would otherwise make
+    every later repair think the user was pinning. So: match without the leading
+    space, ignore lines younger than max_age_s (our own arm), and keep the stored
+    mode when nothing newer is found (it is sticky, set explicitly by --pin/--jog).
+    """
+    rc, out = sh("logcat -d -s PikminBotTools 2>/dev/null | grep -E '(pin|jog) @ ' | tail -5",
+                 serial=serial)
+    floor = cfg.get("last_mode_set", 0)
+    for line in reversed([l for l in (out or "").splitlines() if l.strip()]):
+        if _line_age_s(line) < max_age_s:      # emitted by our own re-arm: skip
+            continue
+        if _line_epoch(line) <= floor:         # older than the mode we set ourselves
+            continue
+        m = re.search(r"(pin|jog) @ ([-\d.]+), ([-\d.]+)", line)
+        if not m:
+            continue
+        cfg["last_mode"] = m.group(1)
+        cfg["last_lat"] = float(m.group(2))
+        cfg["last_lon"] = float(m.group(3))
+        cfg["persist"] = "(lifetime" not in line
         save_config(cfg)
         return cfg["last_lat"], cfg["last_lon"]
     return None
+
+
+def arm_engine(serial, cfg, mode=None):
+    """Re-arm the last-used mode (or the one asked for) on the shared engine."""
+    pkg = cfg.get("package", PKG_DEFAULT)
+    mode = mode or cfg.get("last_mode", "pin")
+    lat, lon = cfg.get("last_lat"), cfg.get("last_lon")
+    if lat is None or lon is None:
+        return False, "no coordinates saved yet (use Pin / jog setup or --pin LAT LON)"
+    cfg["last_mode"] = mode
+    cfg["last_mode_set"] = time.time()
+    save_config(cfg)
+    if mode == "jog":
+        cmd = (f"am start-foreground-service -n {pkg}/.EngineService --es mode jog "
+               f"--es jogmode {cfg.get('jog_mode', 'loop')} "
+               f"--ef lat {lat} --ef lon {lon} "
+               f"--ef speed_kph {cfg.get('jog_speed', 10.0)} "
+               f"--ef steps_per_sec {cfg.get('jog_steps', 2.0)} "
+               f"--ei radius_m {int(cfg.get('jog_radius', 100))} "
+               f"--ei heading {int(cfg.get('jog_heading', 0))} "
+               f"--ei duration_min {int(cfg.get('jog_duration', 30))}")
+    else:
+        persistent = " --ez persistent true" if cfg.get("persist", True) else ""
+        cmd = (f"am start-foreground-service -n {pkg}/.EngineService --es mode pin "
+               f"--ef lat {lat} --ef lon {lon}{persistent}")
+    rc, out = sh(cmd, serial=serial)
+    return rc == 0, f"{mode} @ {lat}, {lon}"
 
 
 # ------------------------------------------------------------------------ gui
@@ -477,9 +544,9 @@ def build_gui(cfg):
     row2 = ttk.Frame(outer)
     row2.pack(fill="x")
     connect_btn = ttk.Button(row2, text="Connect  [F6]")
-    rearm_btn = ttk.Button(row2, text="Re-arm pin  [F7]")
+    rearm_btn = ttk.Button(row2, text="Re-arm last  [F7]")
     stop_btn = ttk.Button(row2, text="Stop engine  [F8]")
-    pin_btn = ttk.Button(row2, text="Set pin coords")
+    pin_btn = ttk.Button(row2, text="Pin / jog setup")
     pair_btn = ttk.Button(row2, text="Pair device")
     copy_btn = ttk.Button(row2, text="Copy status")
     for i, b in enumerate((connect_btn, rearm_btn, stop_btn, pin_btn, pair_btn, copy_btn)):
@@ -592,23 +659,15 @@ def build_gui(cfg):
                 q.put(("notify", "PikminBot repair failed — see log"))
         worker(fn, "repair")
 
-    def do_rearm():
+    def do_rearm(mode=None):
         def fn():
             s = state["serial"] or discover(cfg)
             if not s:
                 glog("not connected")
                 return
-            c = remember_pin(cfg, s)
-            lat = cfg.get("last_lat")
-            lon = cfg.get("last_lon")
-            if lat is None and c is None:
-                glog("no pin coordinates known yet — use 'Set pin coords\u2026'")
-                return
-            pkg = cfg.get("package", PKG_DEFAULT)
-            sh(f"am start-foreground-service -n {pkg}/.EngineService "
-               f"--es mode pin --ef lat {lat} --ef lon {lon}"
-               + (" --ez persistent true" if cfg.get("persist", True) else ""), serial=s)
-            glog(f"engine re-armed at {lat}, {lon}")
+            remember_pin(cfg, s)
+            ok, detail = arm_engine(s, cfg, mode=mode)
+            glog(f"engine re-armed: {detail}" if ok else detail)
         worker(fn, "re-arm")
 
     def do_stop():
@@ -623,7 +682,7 @@ def build_gui(cfg):
 
     def do_pin_dialog():
         dlg = tk.Toplevel(root)
-        dlg.title("Pin coordinates")
+        dlg.title("Pin / jog setup")
         dlg.transient(root)
         dlg.grab_set()
         f = ttk.Frame(dlg, padding=12)
@@ -637,8 +696,22 @@ def build_gui(cfg):
         lon.grid(row=1, column=1, padx=6, pady=3)
         lon.insert(0, str(cfg.get("last_lon", 114.1694)))
         persist = tk.BooleanVar(value=cfg.get("persist", True))
-        ttk.Checkbutton(f, text="Hold (persistent pin)", variable=persist).grid(
-            row=2, column=0, columnspan=2, sticky="w", pady=4)
+        ttk.Checkbutton(f, text="Hold (persistent pin, else 90 s natural)",
+                        variable=persist).grid(row=2, column=0, columnspan=2, sticky="w", pady=4)
+
+        # Jogger settings — same engine, same appop: one repair frees both.
+        jf = ttk.LabelFrame(f, text="Jogger", padding=8)
+        jf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        jvals = {}
+        for i, (key, label, dflt) in enumerate((
+                ("jog_speed", "Speed km/h", 10.0), ("jog_steps", "Steps/s", 2.0),
+                ("jog_radius", "Loop radius m", 100), ("jog_heading", "Heading deg", 0),
+                ("jog_duration", "Duration min", 30))):
+            ttk.Label(jf, text=label).grid(row=i, column=0, sticky="w")
+            e = ttk.Entry(jf, width=10)
+            e.grid(row=i, column=1, padx=6, pady=1, sticky="w")
+            e.insert(0, str(cfg.get(key, dflt)))
+            jvals[key] = e
 
         def ok():
             try:
@@ -648,12 +721,31 @@ def build_gui(cfg):
                 messagebox.showerror(APP, "Coordinates must be numbers")
                 return
             cfg["persist"] = bool(persist.get())
+            for k, e in jvals.items():
+                try:
+                    cfg[k] = float(e.get())
+                except ValueError:
+                    pass
             save_config(cfg)
-            glog(f"saved pin {cfg['last_lat']}, {cfg['last_lon']} "
-                 f"({'hold' if cfg['persist'] else 'natural 90 s'})")
+            glog(f"saved coords {cfg['last_lat']}, {cfg['last_lon']} "
+                 f"({'hold' if cfg['persist'] else 'natural 90 s'}) · jog "
+                 f"{cfg.get('jog_speed')} km/h {cfg.get('jog_steps')} steps/s")
             dlg.destroy()
-            do_rearm()
-        ttk.Button(f, text="Save + pin", command=ok).grid(row=3, column=0, columnspan=2, pady=(6, 0), sticky="ew")
+            do_rearm(mode="pin")
+
+        def jog_now():
+            ok()
+            s2 = state["serial"] or discover(cfg)
+            if not s2:
+                glog("not connected")
+                return
+            good, detail = arm_engine(s2, cfg, mode="jog")
+            glog(f"jog: {detail}" if good else detail)
+
+        ttk.Button(f, text="Save + pin", command=ok).grid(
+            row=3, column=0, pady=(6, 0), sticky="ew")
+        ttk.Button(f, text="Save + start jog", command=jog_now).grid(
+            row=3, column=1, pady=(6, 0), sticky="ew", padx=(6, 0))
 
     def do_pair_dialog():
         dlg = tk.Toplevel(root)
@@ -796,7 +888,13 @@ def main():
     ap.add_argument("--discover", action="store_true", help="discovery only")
     ap.add_argument("--stop", action="store_true", help="stop the engine")
     ap.add_argument("--pair", nargs=2, metavar=("IP:PORT", "CODE"))
-    ap.add_argument("--arm", action="store_true", help="re-arm the last saved pin")
+    ap.add_argument("--arm", action="store_true", help="re-arm the last saved pin/jog")
+    ap.add_argument("--jog", action="store_true", help="start a jog (same engine + slot as MockLoc)")
+    ap.add_argument("--speed", type=float, default=None, help="jog speed km/h")
+    ap.add_argument("--steps", type=float, default=None, help="jog steps per second")
+    ap.add_argument("--radius", type=int, default=None, help="jog loop radius m")
+    ap.add_argument("--heading", type=int, default=None, help="jog heading degrees")
+    ap.add_argument("--duration", type=int, default=None, help="jog duration minutes")
     ap.add_argument("--pin", nargs=2, metavar=("LAT", "LON"),
                     help="save these coordinates and pin there")
     ap.add_argument("--json", action="store_true", help="machine readable output")
@@ -818,7 +916,7 @@ def main():
         return 0 if ok else 1
 
     if args.discover or args.connect or args.repair or args.status or args.stop \
-            or args.arm or args.pin:
+            or args.arm or args.pin or args.jog:
         s = live_serial() or discover(cfg, progress=(None if args.json else log))
         if not s:
             print(json.dumps({"ok": False, "error": "no device found"}) if args.json
@@ -839,6 +937,8 @@ def main():
             except ValueError:
                 print("--pin needs numeric LAT LON")
                 return 2
+            cfg["last_mode"] = "pin"
+            cfg["last_mode_set"] = time.time()
             save_config(cfg)
             pkg = cfg["package"]
             sh(f"am start-foreground-service -n {pkg}/.EngineService --es mode pin "
@@ -849,20 +949,34 @@ def main():
                               "mock_fix": r["fix"]}) if args.json
                   else f"pinned {cfg['last_lat']}, {cfg['last_lon']} · mock fix: {r['fix']}")
             return 0 if r["mock_live"] else 1
+        if args.jog:
+            for k, v in (("jog_speed", args.speed), ("jog_steps", args.steps),
+                         ("jog_radius", args.radius), ("jog_heading", args.heading),
+                         ("jog_duration", args.duration)):
+                if v is not None:
+                    cfg[k] = v
+            cfg["last_mode"] = "jog"
+            save_config(cfg)
+            ok, detail = arm_engine(s, cfg, mode="jog")
+            time.sleep(4)
+            r = status(s, cfg)
+            if args.json:
+                print(json.dumps({"ok": ok and r["mock_live"], "mode": "jog",
+                                  "speed_kph": cfg.get("jog_speed", 10.0),
+                                  "steps_per_sec": cfg.get("jog_steps", 2.0),
+                                  "mock_fix": r["fix"]}, indent=2))
+            else:
+                print(f"{'jog started · ' if ok else detail + ' · '}mock fix: {r['fix']}")
+            return 0 if (ok and r["mock_live"]) else 1
         if args.arm:
             remember_pin(cfg, s)
-            lat, lon = cfg.get("last_lat"), cfg.get("last_lon")
-            if lat is None:
-                print("no saved coordinates — run --pin LAT LON once")
-                return 1
-            pkg = cfg["package"]
-            sh(f"am start-foreground-service -n {pkg}/.EngineService --es mode pin "
-               f"--ef lat {lat} --ef lon {lon}"
-               + (" --ez persistent true" if cfg.get("persist", True) else ""), serial=s)
+            ok, detail = arm_engine(s, cfg)
+            time.sleep(3)
             r = status(s, cfg)
-            print(json.dumps({"ok": r["mock_live"], "pin": [lat, lon]}) if args.json
-                  else f"re-armed at {lat}, {lon} · mock fix: {r['fix']}")
-            return 0 if r["mock_live"] else 1
+            print(json.dumps({"ok": ok and r["mock_live"], "detail": detail,
+                              "mock_fix": r["fix"]}) if args.json
+                  else f"re-armed: {detail} · mock fix: {r['fix']}")
+            return 0 if (ok and r["mock_live"]) else 1
         if args.stop:
             r = stop_engine(s, cfg)
             print(json.dumps(r) if args.json else f"engine stopped (providers left: {r['provider_left']})")

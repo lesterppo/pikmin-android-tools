@@ -5,7 +5,7 @@
 [![MockLoc v1.10](https://img.shields.io/badge/MockLoc-v1.10-4caf50)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10)
 [![HC Step Injector v2.1](https://img.shields.io/badge/HC%20Step%20Injector-v2.1-2196f3)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1)
 [![Jogger v1.2](https://img.shields.io/badge/Jogger-v1.2-ff9800)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2)
-[![PikminBot Tools v2.3](https://img.shields.io/badge/PikminBot%20Tools-v2.3-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.3)
+[![PikminBot Tools v2.4](https://img.shields.io/badge/PikminBot%20Tools-v2.4-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.4)
 [![Pikmin Clones v1.0](https://img.shields.io/badge/Pikmin%20Clones-v1.0-795548)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0)
 
 Open-source Android companion apps for **Pikmin Bloom**: a **mock GPS
@@ -39,7 +39,7 @@ Kotlin (Gradle), released under the MIT license.
 | **MockLoc** | `com.pikminbot.mockloc` | [mockloc-v1.10.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10) |
 | **HC Step Injector** | `com.pikminbot.hcsteps` | [hc-step-injector-v2.1.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1) |
 | **Jogger** | `com.pikminbot.jogger` | [pikmin-jogger-v1.2.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2) |
-| **PikminBot Tools** (MockLoc + Jogger in one app, one engine, self-healing) | `com.pikminbot.tools` | [pikmin-tools-v2.3.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.3) |
+| **PikminBot Tools** (MockLoc + Jogger in one app, one engine, self-healing) | `com.pikminbot.tools` | [pikmin-tools-v2.4.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.4) |
 | **Pikmin Clones** (instance picker for profile copies) | `com.peter.pikminclones` | [pikmin-clones-launcher-v1.0.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0) |
 
 Install any of them with:
@@ -245,11 +245,22 @@ Both UIs (`[ MockLoc ] [ Jogger ]` tabs) drive ONE engine service, so the two
 never fight over the single mock-location slot.
 
 ```bash
-adb install -r releases/pikmin-tools-v2.3.apk
+adb install -r releases/pikmin-tools-v2.4.apk
 ```
 
 The in-app **Mock location repair / status** button (and the footer status line)
 shows the live slot state: `appop` + which package Settings currently names.
+
+**One repair covers BOTH tools.** MockLoc and Jogger are two UIs over the same
+`EngineService`, so they share one mock GPS provider and one `MOCK_LOCATION`
+appop: repairing the slot unblocks pinning *and* jogging at once (verified on
+device — after a repair the fix moved at the configured jog speed and Health
+Connect steps kept landing). Only the re-arm differs: it replays whichever mode
+was last used, so a jog keeps jogging and a pin stays pinned.
+
+v2.4 fix: switching jog → pin (or ending a jog) used to discard up to 30 s of
+step records that were still inside the flush window; the switch now banks them
+first (`HC flush N steps` in the log before `mode switched`).
 
 ### Self-heal after toggling Developer options (v2.3)
 
@@ -428,8 +439,14 @@ Features:
 * optional *Auto-repair while this window is open* (default OFF — the durable
   self-heal lives on the phone, this is only a convenience);
 * CLI modes for scripts: `--status [--json]`, `--repair`, `--connect`,
-  `--discover`, `--arm`, `--pin LAT LON`, `--stop`, `--pair IP:PORT CODE`;
-* keyboard shortcuts: `F5` repair, `F6` connect, `F7` re-arm pin, `F8` stop;
+  `--discover`, `--arm`, `--jog [--speed K --steps S --radius M --heading D
+  --duration MIN]`, `--pin LAT LON`, `--stop`, `--pair IP:PORT CODE`;
+* **Pin / jog setup** dialog (coordinates, hold-vs-90 s, and the jogger's speed,
+  steps/s, radius, heading, duration) with *Save + pin* / *Save + start jog*;
+* **Re-arm last (F7)** replays whichever mode was last used — pin stays pinned,
+  jog resumes and the fix moves again; the mode is learned from the app's own
+  logcat and sticks until you start the other one;
+* keyboard shortcuts: `F5` repair, `F6` connect, `F7` re-arm last, `F8` stop;
 * logs to `~/.cache/pikmin-repair/last-run.log` (paste it into a bug report).
 
 Requires `python3` + `python3-tk` (no other packages) and `adb`

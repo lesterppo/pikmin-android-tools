@@ -35,7 +35,7 @@ paths are ever committed.**
 ### PikminBot Tools (`com.pikminbot.tools`)
 - Kotlin + Gradle (`pikmin-tools/`). MockLoc + Jogger UIs over ONE
   `EngineService` (v2.0 merger) so the two never fight over the single
-  mock-location slot. `versionName 2.3`.
+  mock-location slot. `versionName 2.4`.
 - v2.2: `persistent` is per-request (a sticky `true` used to make every later
   pin immortal) and `onDestroy` hands a real fix back to the phone.
 - v2.3 self-heal (the "Developer options off/on breaks it" fix). Toggling
@@ -52,6 +52,14 @@ paths are ever committed.**
   NEVER call `attemptRepair` without re-checking the appop: writing the
   secure setting alone does NOT move the appop (verified on-device).
   PC-side helper: `fix-mock-slot.sh` (adb repair + optional engine re-arm).
+- v2.4: `switchMode()` banks pending jog steps (`flushSteps`) before the counters
+  are reset — a jog → pin switch used to throw away up to 30 s of step records.
+- MockLoc and Jogger share the ONE appop/provider, so one repair frees both;
+  only the re-arm is mode-specific (last-used mode).
+- `desktop/`: mode-aware re-arm (`arm_engine(..., mode=)`), `--jog` CLI, and a
+  STICKY `last_mode`. Never infer the mode from a fresh "pin @" line the repair
+  itself just wrote: ignore logcat lines younger than `max_age_s` and older than
+  `cfg["last_mode_set"]` (an epoch stamped whenever we set the mode ourselves).
 
 ### PikminBot Repair (`desktop/`)
 - Single-file Python 3 + tkinter desktop app (no third-party deps; GUI is

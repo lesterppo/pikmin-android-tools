@@ -330,6 +330,11 @@ class EngineService : Service() {
 
     /** Live switch pin <-> jog without tearing the service down. */
     private fun switchMode(newMode: String) {
+        // Bank the jog steps still sitting in the <30 s window before the counters
+        // are reset — switching modes used to discard up to 30 s of steps.
+        if (mode == "jog" && stepsSinceFlush > 0.0) {
+            try { flushSteps(Instant.ofEpochMilli(lastFlushMs), Instant.now()) } catch (t: Throwable) {}
+        }
         mode = newMode
         startEpochMs = System.currentTimeMillis()
         totalMeters = 0.0
