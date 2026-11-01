@@ -62,6 +62,35 @@
             </intent-filter>
         </receiver>
 
+        <!-- Mock time / date / timezone injection entry for adb + automation.
+             Clock changes are privileged (SET_TIME), so the receiver delegates to
+             the same root/Shizuku ladder the Time tab uses. Send the explicit
+             component with the -n flag; implicit broadcasts are not delivered to
+             another app's manifest receiver on Android 14+.
+             Extras: epoch (long, ms since epoch), tz (Olson id), shift_hours
+             (float), restore (boolean). Actions SET_TIME, RESTORE_TIME,
+             TIME_STATUS. See MockTimeReceiver for the exact am invocations. -->
+        <receiver
+            android:name=".MockTimeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.pikminbot.mock.SET_TIME" />
+                <action android:name="com.pikminbot.mock.RESTORE_TIME" />
+                <action android:name="com.pikminbot.mock.TIME_STATUS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Shizuku API bridge. Required for Shizuku.pingBinder()/newProcess():
+             without this provider the API can never bind, which is why the
+             Shizuku tier silently degraded to "not running". -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <!-- In-app mock-location repair screen. Opened by the self-heal
              notification, by MainActivity, or directly over adb:
                am start -n com.pikminbot.tools/.RepairActivity -->

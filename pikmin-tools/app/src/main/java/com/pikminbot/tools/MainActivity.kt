@@ -58,6 +58,9 @@ class MainActivity : Activity() {
     private val pollTask = object : Runnable {
         override fun run() {
             refreshEngineStatus()
+            try {
+                if (::timeNow.isInitialized && timeContent.visibility == View.VISIBLE) refreshTimeStatus()
+            } catch (t: Throwable) { /* tab not built yet */ }
             poll.postDelayed(this, 500)
         }
     }
@@ -82,6 +85,15 @@ class MainActivity : Activity() {
     private lateinit var durationInput: EditText
     private lateinit var jogStartBtn: Button
 
+    // ---------------------------- mock time tab fields -----------------------
+    private lateinit var timeContent: LinearLayout
+    private lateinit var timeNow: TextView
+    private lateinit var timeTier: TextView
+    private lateinit var timeTarget: TextView
+    private lateinit var timeLog: TextView
+    private lateinit var tzIn: EditText
+    private var targetEpochMs: Long = -1L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val pad = dp(16)
@@ -101,8 +113,10 @@ class MainActivity : Activity() {
         val tabRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val mockTabBtn = tabButton("MockLoc")
         val jogTabBtn = tabButton("Jogger")
-        tabRow.addView(mockTabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
-        tabRow.addView(jogTabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val timeTabBtn = tabButton("Time")
+        tabRow.addView(mockTabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        tabRow.addView(jogTabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        tabRow.addView(timeTabBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(tabRow)
 
         statusTab = TextView(this).apply {
@@ -123,6 +137,11 @@ class MainActivity : Activity() {
         jogContent.visibility = View.GONE
         root.addView(jogContent)
 
+        // Mock time tab content
+        timeContent = buildTimePanel()
+        timeContent.visibility = View.GONE
+        root.addView(timeContent)
+
         // engine-level status + self-heal shared footer
         engineStatus = TextView(this).apply { text = "Engine: idle"; textSize = 12f; setPadding(0, dp(4), 0, 0) }
         root.addView(engineStatus)
@@ -141,10 +160,14 @@ class MainActivity : Activity() {
 
         mockTabBtn.setOnClickListener { selectTab("mockloc") }
         jogTabBtn.setOnClickListener { selectTab("jogger") }
+        timeTabBtn.setOnClickListener { selectTab("time") }
         selectTab("mockloc")
 
         SlotEvents.subscribe(slotListener)
         SlotWatch.start(this)
+        try {
+            registerReceiver(tzListener, android.content.IntentFilter(Intent.ACTION_TIMEZONE_CHANGED))
+        } catch (e: Throwable) {}
         requestLocationPerms()
         refreshJogStatus()  // init HC hint
         poll.postDelayed(pollTask, 400)
@@ -154,11 +177,14 @@ class MainActivity : Activity() {
     private fun tabButton(name: String): Button = Button(this).apply { text = name }
 
     private fun selectTab(which: String) {
-        val mock = which == "mockloc"
-        mockContent.visibility = if (mock) View.VISIBLE else View.GONE
-        jogContent.visibility = if (mock) View.GONE else View.VISIBLE
-        if (mock) refreshPinStatus()
-        else { refreshJogStatus(); if (!::jogLog.isInitialized) {} }
+        mockContent.visibility = if (which == "mockloc") View.VISIBLE else View.GONE
+        jogContent.visibility = if (which == "jogger") View.VISIBLE else View.GONE
+        timeContent.visibility = if (which == "time") View.VISIBLE else View.GONE
+        when (which) {
+            "mockloc" -> refreshPinStatus()
+            "jogger" -> refreshJogStatus()
+            "time" -> refreshTimeStatus()
+        }
     }
 
     // ================================================================= MAP TAB
@@ -504,6 +530,213 @@ class MainActivity : Activity() {
         }
     }
 
+    // ============================================================ MOCK TIME TAB
+    /**
+     * Mock time / date / timezone panel.
+     *
+     * Clock and timezone injection are privileged (SET_TIME / SET_TIME_ZONE are
+     * signature permissions), so this tab drives MockTime, which executes the
+     * same `cmd alarm set-time` / `cmd alarm set-timezone` the shell uid uses,
+     * through root or Shizuku. The tab states plainly which tier is live.
+     */
+    private fun buildTimePanel(): LinearLayout {
+        val parent = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        timeNow = TextView(this).apply {
+            textSize = 16f
+            setPadding(0, dp(6), 0, dp(2))
+        }
+        parent.addView(timeNow)
+        timeTier = TextView(this).apply {
+            textSize = 12f
+            setPadding(0, 0, 0, dp(6))
+        }
+        parent.addView(timeTier)
+
+        // --- target date / time ------------------------------------------------
+        val pickRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        pickRow.addView(Button(this).apply {
+            text = "Set date"
+            setOnClickListener { pickDate() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        pickRow.addView(Button(this).apply {
+            text = "Set time"
+            setOnClickListener { pickTime() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        pickRow.addView(Button(this).apply {
+            text = "Now"
+            setOnClickListener {
+                targetEpochMs = -1L
+                refreshTimeStatus()
+            }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        parent.addView(pickRow)
+
+        timeTarget = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        parent.addView(timeTarget)
+
+        // --- timezone ----------------------------------------------------------
+        val tzRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tzIn = EditText(this).apply {
+            hint = "Timezone (Olson id, e.g. Asia/Tokyo)"
+            setText("Asia/Tokyo")
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+        }
+        tzRow.addView(tzIn)
+        tzRow.addView(Button(this).apply {
+            text = "TZ only"
+            setOnClickListener {
+                val tz = tzIn.text.toString().trim()
+                runTimeOp("timezone") { MockTime.applyMock(this@MainActivity, null, tz) }
+            }
+        })
+        parent.addView(tzRow)
+
+        // quick zone chips
+        val chipRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((id, label) in MockTime.zoneChoices().take(4)) {
+            chipRow.addView(Button(this).apply {
+                text = label.substringBefore(" ")
+                textSize = 11f
+                setOnClickListener { tzIn.setText(id) }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(2) })
+        }
+        parent.addView(chipRow)
+
+        // --- relative shifts ---------------------------------------------------
+        val shiftRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((label, hours) in listOf("-1d" to -24.0, "-1h" to -1.0, "+1h" to 1.0, "+1d" to 24.0)) {
+            shiftRow.addView(Button(this).apply {
+                text = label
+                textSize = 12f
+                setOnClickListener { runTimeOp("shift $label") { MockTime.shift(this@MainActivity, hours) } }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(2) })
+        }
+        parent.addView(shiftRow)
+
+        // --- apply / restore ---------------------------------------------------
+        parent.addView(Button(this).apply {
+            text = "Apply mock time + timezone"
+            setOnClickListener {
+                val tz = tzIn.text.toString().trim().takeIf { it.isNotBlank() }
+                val target = if (targetEpochMs > 0) targetEpochMs else null
+                if (target == null && tz == null) {
+                    appendTimeLog("Pick a date/time or a timezone first")
+                    return@setOnClickListener
+                }
+                runTimeOp("apply") { MockTime.applyMock(this@MainActivity, target, tz) }
+            }
+        })
+        parent.addView(Button(this).apply {
+            text = "Grant Shizuku"
+            setOnClickListener {
+                MockTime.resetRootCache()
+                if (!MockTime.shizukuBinderAlive()) {
+                    appendTimeLog(
+                        "Shizuku is not running. Open the Shizuku app and start it " +
+                        "(wireless-debugging start works without a computer on Android 11+), " +
+                        "then tap this again."
+                    )
+                } else {
+                    MockTime.requestShizukuPermission()
+                    appendTimeLog("Asked Shizuku for permission — approve the dialog.")
+                }
+                refreshTimeStatus()
+            }
+        })
+        parent.addView(Button(this).apply {
+            text = "Restore real time"
+            setOnClickListener { runTimeOp("restore") { MockTime.restore(this@MainActivity) } }
+        })
+
+        timeLog = TextView(this).apply {
+            textSize = 11f
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        parent.addView(timeLog)
+
+        refreshTimeStatus()
+        return parent
+    }
+
+    private fun pickDate() {
+        val base = java.util.Calendar.getInstance()
+        if (targetEpochMs > 0) base.timeInMillis = targetEpochMs
+        android.app.DatePickerDialog(
+            this, { _, y, m, d ->
+                val c = java.util.Calendar.getInstance()
+                if (targetEpochMs > 0) c.timeInMillis = targetEpochMs
+                c.set(java.util.Calendar.YEAR, y)
+                c.set(java.util.Calendar.MONTH, m)
+                c.set(java.util.Calendar.DAY_OF_MONTH, d)
+                targetEpochMs = c.timeInMillis
+                refreshTimeStatus()
+            },
+            base.get(java.util.Calendar.YEAR),
+            base.get(java.util.Calendar.MONTH),
+            base.get(java.util.Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
+    private fun pickTime() {
+        val base = java.util.Calendar.getInstance()
+        if (targetEpochMs > 0) base.timeInMillis = targetEpochMs
+        android.app.TimePickerDialog(
+            this, { _, h, min ->
+                val c = java.util.Calendar.getInstance()
+                if (targetEpochMs > 0) c.timeInMillis = targetEpochMs
+                c.set(java.util.Calendar.HOUR_OF_DAY, h)
+                c.set(java.util.Calendar.MINUTE, min)
+                c.set(java.util.Calendar.SECOND, 0)
+                targetEpochMs = c.timeInMillis
+                refreshTimeStatus()
+            },
+            base.get(java.util.Calendar.HOUR_OF_DAY),
+            base.get(java.util.Calendar.MINUTE),
+            true
+        ).show()
+    }
+
+    /** Run a privileged time op off the UI thread and show what actually happened. */
+    private fun runTimeOp(label: String, op: () -> String) {
+        appendTimeLog("$label …")
+        Thread {
+            val out = try { op() } catch (t: Throwable) { "ERROR ${t.javaClass.simpleName}: ${t.message}" }
+            runOnUiThread {
+                appendTimeLog("$label -> $out")
+                refreshTimeStatus()
+            }
+        }.start()
+    }
+
+    private fun refreshTimeStatus() {
+        if (!::timeNow.isInitialized) return
+        val s = MockTime.snapshot(this)
+        timeNow.text = "Device clock: ${s.text}"
+        val tier = MockTime.tierName()
+        val missing = MockTime.missingTier()
+        timeTier.text = if (missing == null) {
+            "Injection tier: $tier" + if (MockTime.isActive(this)) " · MOCK ACTIVE" else ""
+        } else {
+            "Injection tier: $tier — $missing"
+        }
+        if (::timeTarget.isInitialized) {
+            timeTarget.text = if (targetEpochMs > 0) {
+                "Target: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+                    .format(java.util.Date(targetEpochMs)) + "  (device local zone)"
+            } else "Target: clock unchanged (now)"
+        }
+    }
+
+    private fun appendTimeLog(s: String) {
+        if (!::timeLog.isInitialized) return
+        val cur = timeLog.text.toString()
+        timeLog.text = if (cur.isBlank()) s else cur + "\n" + s
+    }
+
     // ================================================================= shared
     private fun refreshEngineStatus() {
         if (!::statusTab.isInitialized) return
@@ -531,6 +764,15 @@ class MainActivity : Activity() {
         }
         if (EngineService.running && EngineService.mode == "jog") refreshJogStatus()
         else if (EngineService.running && EngineService.mode == "pin") refreshPinStatus()
+    }
+
+    /** The platform broadcasts a zone change; java.util.TimeZone caches the old
+     *  value in-process, so reset it here or the clock line lies. */
+    private val tzListener = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) {
+            try { java.util.TimeZone.setDefault(null) } catch (e: Throwable) {}
+            runOnUiThread { try { refreshTimeStatus() } catch (e: Throwable) {} }
+        }
     }
 
     private fun openRepair() {
@@ -651,6 +893,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        try { MockTime.syncDefaultZone(); refreshTimeStatus() } catch (e: Throwable) {}
         // Coming back from Developer options: re-probe and repair immediately so
         // a pin can be re-armed without the user thinking about it.
         poll.postDelayed({
@@ -675,6 +918,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         poll.removeCallbacks(pollTask)
+        try { unregisterReceiver(tzListener) } catch (e: Throwable) {}
         SlotEvents.unsubscribe(slotListener)
         SlotWatch.stop()
         super.onDestroy()

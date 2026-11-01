@@ -14,6 +14,93 @@ on-device self-healing.
   loop or straight route while steps stream to Health Connect in 30 s batches
   (dt-based timing so measured speed matches config).
 
+## Mock time / date / timezone (v2.5)
+
+The **TIME** tab (and an exported receiver) injects a system clock, date and
+timezone. This is how you move the device clock that every local app reads.
+
+```
+[MockLoc] [Jogger] [Time]
+```
+
+Controls: **Set date** / **Set time** pickers, **Now**, a timezone field with
+HK/Tokyo/Seoul/Shanghai chips, **TZ only**, relative **-1d / -1h / +1h / +1d**
+shifts, **Apply mock time + timezone**, **Grant Shizuku**, **Restore real time**.
+The header always shows the live device clock, the zone in use and which
+privilege tier is active (`MOCK ACTIVE` while an injection is in place).
+
+### Why a privilege tier is needed
+
+`SET_TIME` and `SET_TIME_ZONE` are `signature` permissions, so no app can hold
+them — not even with `pm grant`. `WRITE_SECURE_SETTINGS` is **not** enough on
+Android 12+: writing `Settings.Global.TIME_ZONE` no longer reaches the running
+system (the timezone is owned by `time_zone_detector`) and writing `AUTO_TIME`
+alone does not move the clock. Both verified on device.
+
+The app therefore executes the same commands the **shell uid** uses, through a
+ladder and reports honestly which rung actually ran:
+
+| tier | requirement | note |
+|---|---|---|
+| 0 | `su` (root) | fully automatic on a rooted phone |
+| 1 | **Shizuku** running + authorised | fully automatic on stock Android; start Shizuku once after each reboot |
+| 2 | none | the tab states exactly what is missing and how to fix it |
+
+Commands executed (tier 0/1):
+
+```bash
+cmd time_detector set_auto_detection_enabled false
+settings put global auto_time 0
+settings put global auto_time_zone 0
+cmd alarm set-timezone Asia/Tokyo
+cmd alarm set-time <epoch-ms>
+```
+
+`Restore real time` puts the saved zone back and re-enables automatic
+time/timezone detection, after which the platform resyncs from the network.
+
+### Headless / automation
+
+```bash
+# shift the clock by -24 h through the app (needs tier 0/1 inside the app)
+adb shell am broadcast -n com.pikminbot.tools/.MockTimeReceiver \
+  -a com.pikminbot.mock.SET_TIME --ef shift_hours -24
+
+# absolute time + timezone
+adb shell am broadcast -n com.pikminbot.tools/.MockTimeReceiver \
+  -a com.pikminbot.mock.SET_TIME --el epoch 1795101296799 --es tz Asia/Tokyo
+
+# back to real time
+adb shell am broadcast -n com.pikminbot.tools/.MockTimeReceiver \
+  -a com.pikminbot.mock.RESTORE_TIME
+```
+
+Always send the explicit component (`-n`): Android 14+ does not deliver
+implicit broadcasts to another app's manifest receiver.
+
+Without the app at all, the shell uid can do the same directly — compute the
+epoch on the host, because Android's `sh` arithmetic is 32-bit and overflows:
+
+```bash
+adb shell cmd time_detector set_auto_detection_enabled false
+adb shell 'settings put global auto_time 0; settings put global auto_time_zone 0'
+adb shell cmd alarm set-timezone Asia/Tokyo
+adb shell cmd alarm set-time 1795101296799
+```
+
+### Verified behaviour (SM-A3760, Android 16, Shizuku tier)
+
+- `TZ only` → `persist.sys.timezone=Asia/Tokyo`, `date` flips to JST while the
+  epoch is unchanged.
+- `+1d` → clock moved one day; `Apply` with a picked date → clock moved to
+  `2026-11-20`, log shows `set-time ... [shizuku] ok=true`.
+- `Restore real time` → zone back to `Asia/Hong_Kong`, clock back to real time,
+  `auto_time=1`, `auto_time_zone=1`.
+- Broadcast path → `shift_hours -24` moved the clock exactly one day back.
+- **Pikmin Bloom does not follow the device clock**: with the phone set to
+  Nov 19 the game still showed `11月2日` (server time). Mock time shifts local
+  apps, not the game's server-authoritative day boundary.
+
 ## Self-heal (no computer required)
 
 Both services catch `SecurityException` on mock injection and attempt repair
