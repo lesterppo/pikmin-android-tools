@@ -13,12 +13,15 @@
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.WRITE_STEPS" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <queries>
         <package android:name="com.google.android.healthconnect.controller" />
     </queries>
 
     <application
+        android:extractNativeLibs="true"
         android:label="PikminBot Tools"
         android:icon="@android:drawable/ic_menu_compass"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -61,6 +64,17 @@
                 <action android:name="com.pikminbot.mock.CLEAR_LOCATION" />
             </intent-filter>
         </receiver>
+
+        <!-- Floating pairing helper. The system pairing dialog kills its server
+             when it loses foreground, so the pairing form must float ON TOP of it. -->
+        <service
+            android:name=".PairOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the ADB pairing overlay alive while the system pairing dialog is focused" />
+        </service>
 
         <!-- Mock time / date / timezone injection entry for adb + automation.
              Clock changes are privileged (SET_TIME), so the receiver delegates to

@@ -5,7 +5,7 @@
 [![MockLoc v1.10](https://img.shields.io/badge/MockLoc-v1.10-4caf50)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/mockloc-v1.10)
 [![HC Step Injector v2.1](https://img.shields.io/badge/HC%20Step%20Injector-v2.1-2196f3)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/hc-step-injector-v2.1)
 [![Jogger v1.2](https://img.shields.io/badge/Jogger-v1.2-ff9800)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2)
-[![PikminBot Tools v2.5](https://img.shields.io/badge/PikminBot%20Tools-v2.5-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.5)
+[![PikminBot Tools v3.5](https://img.shields.io/badge/PikminBot%20Tools-v3.5-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v3.5)
 [![Pikmin Clones v1.0](https://img.shields.io/badge/Pikmin%20Clones-v1.0-795548)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0)
 
 Open-source Android companion apps for **Pikmin Bloom**: a **mock GPS

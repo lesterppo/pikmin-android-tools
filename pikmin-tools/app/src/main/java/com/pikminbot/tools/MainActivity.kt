@@ -92,6 +92,7 @@ class MainActivity : Activity() {
     private lateinit var timeTarget: TextView
     private lateinit var timeLog: TextView
     private lateinit var tzIn: EditText
+    private lateinit var adbStatus: TextView
     private var targetEpochMs: Long = -1L
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,6 +164,7 @@ class MainActivity : Activity() {
         timeTabBtn.setOnClickListener { selectTab("time") }
         selectTab("mockloc")
 
+        MockTime.init(this)
         SlotEvents.subscribe(slotListener)
         SlotWatch.start(this)
         try {
@@ -647,6 +649,40 @@ class MainActivity : Activity() {
                 refreshTimeStatus()
             }
         })
+        // --- local ADB tier -----------------------------------------------------
+        adbStatus = TextView(this).apply {
+            textSize = 12f
+            setPadding(0, dp(6), 0, dp(2))
+        }
+        parent.addView(adbStatus)
+        val adbRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        adbRow.addView(Button(this).apply {
+            text = "Pair ADB"
+            textSize = 12f
+            setOnClickListener { startPairing() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        adbRow.addView(Button(this).apply {
+            text = "Reconnect"
+            textSize = 12f
+            setOnClickListener { reconnectAdb() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        adbRow.addView(Button(this).apply {
+            text = "Test ADB"
+            textSize = 12f
+            setOnClickListener {
+                runTimeOp("adb test") {
+                    val sh = LocalAdb.shell(this@MainActivity, "id")
+                    "ok=${sh.ok} ${sh.msg}"
+                }
+            }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        parent.addView(adbRow)
+        parent.addView(Button(this).apply {
+            text = "Import adb key from file"
+            textSize = 12f
+            setOnClickListener { importKeyDialog() }
+        })
+
         parent.addView(Button(this).apply {
             text = "Restore real time"
             setOnClickListener { runTimeOp("restore") { MockTime.restore(this@MainActivity) } }
@@ -660,6 +696,165 @@ class MainActivity : Activity() {
 
         refreshTimeStatus()
         return parent
+    }
+
+    /**
+     * Connect the local-ADB transport. mDNS usually reveals the wireless-debug
+     * port, but on some builds NsdManager returns nothing (VPN on, or the
+     * service is filtered), so fall back to asking for the port that the
+     * Wireless debugging screen shows.
+     */
+    private fun reconnectAdb() {
+        appendTimeLog("adb: discovering connect port…")
+        Thread {
+            val detected = LocalAdb.detectConnectPort(this)
+            runOnUiThread {
+                if (detected > 0) {
+                    runTimeOp("adb connect") {
+                        val r = LocalAdb.connect(this, detected)
+                        "port $detected ok=${r.ok} ${r.msg}"
+                    }
+                } else {
+                    val et = EditText(this).apply {
+                        hint = "port from Wireless debugging (e.g. 44133)"
+                        inputType = InputType.TYPE_CLASS_NUMBER
+                        setText(LocalAdb.connectPort(this@MainActivity).takeIf { it > 0 }?.toString() ?: "")
+                    }
+                    val box = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dp(16), dp(8), dp(16), dp(8))
+                    }
+                    box.addView(TextView(this).apply {
+                        textSize = 12f
+                        text = "mDNS found no adb port. Read it from Developer options → " +
+                                "Wireless debugging → IP address and port."
+                    })
+                    box.addView(et)
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("ADB connect port")
+                        .setView(box)
+                        .setPositiveButton("Connect") { _, _ ->
+                            val p = et.text.toString().trim().toIntOrNull() ?: 0
+                            runTimeOp("adb connect") {
+                                if (p <= 0) return@runTimeOp "invalid port"
+                                LocalAdb.setConnectPort(this, p)
+                                val r = LocalAdb.connect(this, p)
+                                "port $p ok=${r.ok} ${r.msg}"
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Seed a trusted adb key: push adbkey + adbkey.pub into
+     * /sdcard/Android/data/<pkg>/files/ then tap this. Needed on OEM builds that
+     * refuse to draw our overlay over Settings (the pairing bar then cannot be
+     * used, and the pairing server dies when the dialog is backgrounded).
+     */
+    private fun importKeyDialog() {
+        val dir = getExternalFilesDir(null)
+        val key = java.io.File(dir, "adbkey")
+        val pub = java.io.File(dir, "adbkey.pub")
+        if (!key.exists() || !pub.exists()) {
+            appendTimeLog("Put adbkey + adbkey.pub in:\n${dir?.absolutePath}")
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Import adb key?")
+            .setMessage("This app will use the supplied adb private key to open a shell " +
+                    "channel to this device. Only import a key you own.")
+            .setPositiveButton("Import") { _, _ ->
+                runTimeOp("import key") {
+                    val r = LocalAdb.importKey(this, key, pub)
+                    val c = LocalAdb.detectConnectPort(this)
+                    val cr = LocalAdb.connect(this, c)
+                    "import ok=${r.ok} ${r.msg} · connect:$c ok=${cr.ok} ${cr.msg}"
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Pairing has to happen in a floating overlay: the system pairing dialog
+     * stops advertising its port the moment it loses foreground (measured), so a
+     * normal dialog in this app can never catch the code in time.
+     */
+    private fun startPairing() {
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            appendTimeLog("Grant \"Display over other apps\" for PikminBot Tools, then tap Pair ADB again.")
+            try {
+                startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:$packageName")
+                    )
+                )
+            } catch (t: Throwable) {
+                appendTimeLog("cannot open overlay settings: ${t.message}")
+            }
+            return
+        }
+        PairOverlayService.start(this)
+        appendTimeLog("Floating pair bar opened — open the system pairing dialog, type the code there.")
+    }
+
+    /**
+     * Pair this app's own adb key with the phone's wireless-debugging service.
+     * Ports come from mDNS; the pairing port only exists while the system
+     * "Pair device with pairing code" dialog is open, so the user opens it,
+     * reads the 6-digit code and types it here.
+     */
+    private fun pairAdbDialog() {
+        appendTimeLog("adb: discovering ports (open the pairing dialog first)…")
+        Thread {
+            val ports = LocalAdb.discover(this, 5000)
+            runOnUiThread {
+                val box = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(16), dp(8), dp(16), dp(8))
+                }
+                box.addView(TextView(this).apply {
+                    textSize = 12f
+                    text = "mDNS: pairing port ${ports.pairing ?: "not advertised"}, " +
+                            "connect port ${ports.connect ?: "not advertised"}"
+                })
+                val portIn = EditText(this).apply {
+                    hint = "Pairing port"
+                    inputType = InputType.TYPE_CLASS_NUMBER
+                    setText((ports.pairing ?: 0).toString().takeIf { (ports.pairing ?: 0) > 0 } ?: "")
+                }
+                val codeIn = EditText(this).apply {
+                    hint = "6-digit pairing code"
+                    inputType = InputType.TYPE_CLASS_NUMBER
+                }
+                box.addView(portIn)
+                box.addView(codeIn)
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Pair local ADB")
+                    .setMessage("Developer options → Wireless debugging → Pair device with pairing code")
+                    .setView(box)
+                    .setPositiveButton("Pair") { _, _ ->
+                        val pp = portIn.text.toString().trim().toIntOrNull() ?: 0
+                        val code = codeIn.text.toString().trim()
+                        runTimeOp("adb pair") {
+                            if (pp <= 0) return@runTimeOp "no pairing port — open the pairing dialog"
+                            if (code.length < 6) return@runTimeOp "pairing code must be 6 digits"
+                            val pr = LocalAdb.pair(this, pp, code)
+                            if (!pr.ok) return@runTimeOp "pair failed: ${pr.msg}"
+                            val cp = LocalAdb.discover(this, 4000).connect ?: pp
+                            val cr = LocalAdb.connect(this, cp)
+                            "paired on :$pp, connect :$cp -> ok=${cr.ok} ${cr.msg}"
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }.start()
     }
 
     private fun pickDate() {
@@ -722,6 +917,17 @@ class MainActivity : Activity() {
             "Injection tier: $tier" + if (MockTime.isActive(this)) " · MOCK ACTIVE" else ""
         } else {
             "Injection tier: $tier — $missing"
+        }
+        if (::adbStatus.isInitialized) {
+            val avail = LocalAdb.available(this)
+            val paired = LocalAdb.isPaired(this)
+            val cp = LocalAdb.connectPort(this)
+            adbStatus.text = when {
+                !avail -> "Local ADB: binary not bundled"
+                !paired -> "Local ADB: bundled, not paired — tap Pair ADB once"
+                cp > 0 -> "Local ADB: paired · 127.0.0.1:$cp"
+                else -> "Local ADB: paired, no port yet — tap Reconnect"
+            }
         }
         if (::timeTarget.isInitialized) {
             timeTarget.text = if (targetEpochMs > 0) {

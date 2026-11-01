@@ -101,6 +101,77 @@ adb shell cmd alarm set-time 1795101296799
   Nov 19 the game still showed `11月2日` (server time). Mock time shifts local
   apps, not the game's server-authoritative day boundary.
 
+## Local-ADB tier (v3.0+, LADB-style) — clock injection without Shizuku or root
+
+v2.5 reached the shell uid through **Shizuku**. v3.x adds a self-contained
+option: the app ships its own `adb` client and opens the shell channel itself,
+so nothing else has to be installed or kept running.
+
+Execution ladder (first rung that works wins):
+
+| tier | requirement | survives reboot |
+|---|---|---|
+| 0 | `su` (root) | yes |
+| 1 | **local-ADB** (this app's own adb client, connected) | yes — the adb key and the wireless-debugging port persist |
+| 2 | Shizuku running + authorised | no, Shizuku must be restarted |
+| 3 | none — the tab states exactly what is missing | — |
+
+### What is bundled
+
+`app/src/main/jniLibs/arm64-v8a/` holds `libadb.so` (AOSP `adb` 1.0.41 from
+Termux `android-tools` 37.0.0p1, Apache-2.0) plus its 58 shared libraries
+(~12 MB, APK 13.4 MB). The binary must live in the APK's native library dir —
+an app may not `exec` from its data dir since the Android 10 W^X change — so
+`extractNativeLibs="true"` + `useLegacyPackaging` are required.
+
+Gradle only packages files ending in `.so`, so two libs were renamed
+(`libz.so.1 → libz.so`, `libzstd.so.1 → libzstd.so`) and the matching
+`DT_NEEDED` entries were patched in place inside `libadb.so` and
+`libprotobuf.so` (equal-length string swap, file size unchanged).
+
+### Getting connected (one-time)
+
+**Option A — pair with the system dialog.** `Pair ADB` shows a floating bar;
+open Developer options → Wireless debugging → *Pair device with pairing code*
+and type the code into the bar.
+
+> Measured limitation: the pairing server dies the instant that dialog loses
+> foreground (`/proc/net/tcp` LISTEN → gone within 3 s of an app switch), and
+> Samsung OneUI does not draw our overlay over Settings, so the floating bar is
+> invisible there. On such builds use option B.
+
+**Option B — import a trusted adb key.**
+
+```bash
+adb push ~/.android/adbkey     /sdcard/Android/data/com.pikminbot.tools/files/adbkey
+adb push ~/.android/adbkey.pub /sdcard/Android/data/com.pikminbot.tools/files/adbkey.pub
+# then in the app: Time tab → Import adb key from file
+```
+
+The key is copied to `files/adbhome/.android/adbkey` (0600) and the adb server
+restarted so it picks it up. Only import a key you own: it grants this app the
+same shell channel the PC has.
+
+**Connect port.** mDNS (`_adb-tls-connect._tcp`) is unreliable from inside the
+app (observed empty on both test phones), so `Reconnect` falls back to a port
+prompt — read it from Developer options → Wireless debugging → *IP address and
+port* (e.g. `44133`). The port is remembered.
+
+### Verified live (both phones, Shizuku stopped)
+
+```
+before: Wed Nov 18 02:40 HKT / persist.sys.timezone=Asia/Tokyo
+TZ ONLY  -> Asia/Hong_Kong      tier: local-adb
++1H      -> 01:40 -> 02:41 HKT
+Restore  -> real time, auto_time=1, auto_time_zone=1
+S24 FE   -> HKT -> Asia/Tokyo   tier: local-adb
+```
+
+Two pitfalls found the hard way: an `adb` server already bound to
+`127.0.0.1:5037` by another uid makes every connect fail with *failed to
+connect*; and the key files must be named exactly `adbkey` / `adbkey.pub`, or
+adb silently generates a fresh key and adbd rejects it.
+
 ## Self-heal (no computer required)
 
 Both services catch `SecurityException` on mock injection and attempt repair

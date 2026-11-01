@@ -11,13 +11,23 @@ android {
         applicationId "com.pikminbot.tools"
         minSdk 28
         targetSdk 34
-        versionCode 7
-        versionName "2.5"
+        versionCode 13
+        versionName "3.5"
+        ndk { abiFilters 'arm64-v8a' }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+        }
+    }
+
+    // The local-ADB tier execs a bundled `adb` binary from the APK's native
+    // library dir, so the libs must be extracted to disk (not kept inside the
+    // APK as a mapped, non-executable blob).
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 

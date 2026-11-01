@@ -10,3 +10,7 @@ local.properties
 *.apk
 !releases/
 !releases/*.apk
+# bundled adb client (12 MB of third-party binaries) — regenerate with
+# pikmin-tools/fetch-adb-libs.sh before building
+pikmin-tools/app/src/main/jniLibs/
+pikmin-tools/build/termux-adb/

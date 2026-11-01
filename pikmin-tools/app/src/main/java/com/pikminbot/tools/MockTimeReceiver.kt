@@ -33,6 +33,7 @@ class MockTimeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val app = context.applicationContext
         val action = intent.action ?: return
+        MockTime.init(app)
         val pending = goAsync()
         Thread {
             val out = try {

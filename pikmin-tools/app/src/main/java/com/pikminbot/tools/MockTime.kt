@@ -62,6 +62,15 @@ object MockTime {
 
     private val ISO = SimpleDateFormat("EEE yyyy-MM-dd HH:mm:ss zzz", Locale.US)
 
+    /** App context, needed by the local-ADB tier (it execs a bundled binary). */
+    @Volatile
+    private var appCtx: Context? = null
+
+    fun init(ctx: Context) {
+        appCtx = ctx.applicationContext
+        LocalAdb.ensureConnectedLater(ctx)
+    }
+
     /** Result of one privileged execution attempt. */
     data class Res(val ok: Boolean, val tier: String, val msg: String)
 
@@ -95,18 +104,28 @@ object MockTime {
     /** Null when a privileged tier is usable, else the reason it is not. */
     fun missingTier(): String? = when {
         rootUsable() -> null
+        appCtx?.let { LocalAdb.available(it) && LocalAdb.isPaired(it) } == true -> null
         shizukuPermitted() -> null
         shizukuBinderAlive() -> "Shizuku is running but has not authorised PikminBot Tools — tap \"Grant Shizuku\""
-        else -> "No root and Shizuku is not running.\n" +
-                "Start Shizuku (wireless-debugging start in the Shizuku app) once after each reboot,\n" +
-                "then tap \"Grant Shizuku\". Without it the clock cannot be moved: SET_TIME is a signature permission."
+        appCtx?.let { LocalAdb.available(it) && !LocalAdb.isPaired(it) } == true ->
+            "Local ADB is bundled but not paired yet — tap \"Pair ADB\" once " +
+                    "(Wireless debugging → Pair device with pairing code). " +
+                    "It survives reboots; Shizuku is then optional."
+        else -> "No privileged channel: not root, local ADB not paired, Shizuku not running.\n" +
+                "Tap \"Pair ADB\" once, or start Shizuku. Without one of them the clock cannot be " +
+                "moved: SET_TIME is a signature permission."
     }
 
-    fun tierName(): String = when {
-        rootUsable() -> "root"
-        shizukuPermitted() -> "shizuku"
-        shizukuBinderAlive() -> "shizuku(unauthorised)"
-        else -> "none"
+    fun tierName(): String {
+        val c = appCtx
+        return when {
+            rootUsable() -> "root"
+            c != null && LocalAdb.available(c) && LocalAdb.isPaired(c) -> "local-adb"
+            shizukuPermitted() -> "shizuku"
+            shizukuBinderAlive() -> "shizuku(unauthorised)"
+            c != null && LocalAdb.available(c) -> "local-adb(unpaired)"
+            else -> "none"
+        }
     }
 
     @Volatile
@@ -149,6 +168,12 @@ object MockTime {
             } catch (t: Throwable) {
                 Log.w(TAG, "mocktime: root exec failed", t)
             }
+        }
+        val c = appCtx
+        if (c != null && LocalAdb.available(c) && LocalAdb.isPaired(c)) {
+            val r = LocalAdb.shell(c, cmd)
+            if (r.ok) return Res(true, "local-adb", r.msg)
+            Log.w(TAG, "mocktime: local-adb failed (${r.msg}) — trying Shizuku")
         }
         if (shizukuPermitted()) {
             return try {
