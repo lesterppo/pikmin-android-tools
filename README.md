@@ -7,6 +7,7 @@
 [![Jogger v1.2](https://img.shields.io/badge/Jogger-v1.2-ff9800)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2)
 [![PikminBot Tools v3.5](https://img.shields.io/badge/PikminBot%20Tools-v3.5-9c27b0)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v3.5)
 [![Pikmin Clones v1.0](https://img.shields.io/badge/Pikmin%20Clones-v1.0-795548)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0)
+[![Pikmin Updater v1.0](https://img.shields.io/badge/Pikmin%20Updater-v1.0-607d8b)](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-updater-v1.0)
 
 Open-source Android companion apps for **Pikmin Bloom**: a **mock GPS
 location** app with a built-in map (MockLoc), a **Health Connect + Google Fit
@@ -29,6 +30,7 @@ Kotlin (Gradle), released under the MIT license.
 - [2. HC Step Injector — Health Connect & Google Fit steps](#2-hc-step-injector--health-connect--google-fit-steps)
 - [3. Jogger — jogging simulator](#3-jogger--jogging-simulator)
 - [4. Pikmin Clones — several accounts on one phone](#4-pikmin-clones--several-accounts-on-one-phone)
+- [5. Pikmin Updater — one-tap clone updates](#5-pikmin-updater--one-tap-clone-updates)
 - [FAQ](#faq)
 - [Repository layout](#repository-layout)
 - [License](#license)
@@ -42,6 +44,7 @@ Kotlin (Gradle), released under the MIT license.
 | **Jogger** | `com.pikminbot.jogger` | [pikmin-jogger-v1.2.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-jogger-v1.2) |
 | **PikminBot Tools** (MockLoc + Jogger in one app, one engine, self-healing) | `com.pikminbot.tools` | [pikmin-tools-v2.4.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-tools-v2.4) |
 | **Pikmin Clones** (instance picker for profile copies) | `com.peter.pikminclones` | [pikmin-clones-launcher-v1.0.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-clones-launcher-v1.0) |
+| **Pikmin Updater** (one-tap update for the C1/C2/C3 clones) | `com.pikminbot.updater` | [pikmin-updater-v1.0.apk](https://github.com/lesterppo/pikmin-android-tools/releases/tag/pikmin-updater-v1.0) |
 
 Install any of them with:
 
@@ -335,6 +338,27 @@ Full guide, build scripts and verification helpers:
 `build_clone.sh`, `patch_sharedlogin.py`, `verify_gps.sh`, `verify_steps.sh`.
 
 ---
+
+## 5. Pikmin Updater — one-tap clone updates
+
+When a new Pikmin Bloom version ships, the PC rebuilds `c1/c2/c3` (see
+[pikmin-clones/build_clone_156_1.sh](pikmin-clones/build_clone_156_1.sh)) and the phone only
+has to install them. This app does that in one tap and shows
+`installed 156.0 → 156.1` per clone before you commit.
+
+```bash
+adb install -r releases/pikmin-updater-v1.0.apk
+adb shell appops set com.pikminbot.updater REQUEST_INSTALL_PACKAGES allow
+# launch the app once, THEN push the new builds:
+adb push c1.apk c2.apk c3.apk /sdcard/Android/data/com.pikminbot.updater/files/apks/
+```
+
+No PC at hand: tap **ADD APK** and pick the files, or serve them from the PC with
+`pikmin-clones/publish.sh` and use **FROM PC** over Wi-Fi.
+
+The clones keep their signing identity across versions, so accounts and settings survive an
+update. Details, pitfalls (adb-created folders, the background-location grant) and the
+source: [updater/README.md](updater/README.md).
 
 ## FAQ
 
